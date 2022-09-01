@@ -1,9 +1,15 @@
 
+:root {
+  --scale: 115%;
+  --sizeBase: 1em;
+  --separatorColor: #444444;
+}
+
 html, body {
   overflow: auto;
   font-style: normal;
   font-family: tahoma, arial, verdana, sans-serif;
-  font-size: 104%;
+  font-size: var(--scale);
   padding: 0;
   border: 0 none;
 }
@@ -19,27 +25,30 @@ html, body {
 }
 
 #SearchForm {
-  margin-top:    0.2em;
+  margin-top:    0.7em;
   margin-bottom: 0.7em;
   margin-left:   0.8em;
-  margin-right:  0.8em;
+  margin-right:  0.6em;
+}
+
+#RigSelectors label {
+  padding-right: 0.1em;
 }
 
 #SearchInput {
+  width: calc(100% - (var(--sizeBase) * 1.8));
+  overflow: hidden;
   background-color: #F5F5F5;
-  font-size: 106%;
-  position: relative;
-  margin-top: 0;
+  font-size: calc(var(--sizeBase) * 1.2);
+  margin-top: 0.1em;
   padding-top: 0.1em;
   padding-left: 0.3em;
-  width: calc(100% - 2.2em);
 }
 
 #SearchButton {
-  position: relative;
-  top: 0.6em;
-  width: 1.9em;
-  height: 1.9em;
+  float: right;
+  width: calc(var(--sizeBase) * 2);
+  height: calc(var(--sizeBase) * 2);
   cursor: pointer;
 }
 
@@ -48,28 +57,32 @@ span.MatchText {
 }
 
 #ResultsTable {
-  border-collapse: collapse;
   border-spacing: 0;
 }
 #ResultsTable tr:last-child {
-  border-bottom: 1px solid #DDDDDD;
+  border-bottom: 1px solid var(--separatorColor);
 }
 #ResultsTable tr td:nth-child(1) {
-  padding-top:   0.2em;
+  padding-top: 0.3em;
+  padding-bottom: 0.3em;
   padding-right: 1em;
+  padding-left: 1em;
+  text-indent:-1em;
+  font-size: var(--sizeBase);
 }
 #ResultsTable tr td:nth-child(1):not(:empty) {
-  border-top: 1px solid #DDDDDD;
+  border-top: 1px solid var(--separatorColor);
 }
 #ResultsTable tr td:nth-child(2) {
-  border-top: 1px solid #DDDDDD;
-  color: #757575;
-  font-size: 90%;
+  border-top: 1px solid var(--separatorColor);
+  font-size: calc(var(--sizeBase) * 0.8);
   font-style: italic;
   vertical-align: middle;
-  padding-top:   0.2em;
-  padding-left:  0.5em;
+  padding-top: 0.3em;
+  padding-bottom: 0.3em;
   padding-right: 0.2em;
+  padding-left: 1.5em;
+  text-indent:-1em;
 }
 
 

@@ -1,11 +1,16 @@
 
 // Global consts
-const kstrSearchUrl = "https://script.google.com/macros/s/AKfycbxw8U4EMW9tKyLKYrLbPvO06wH2nQwnjs-_xVAxmKzGeCx1yzoPqIAN65vcB3ITPbxP/exec?q=";
-const knAutosearchDelayMillis = 800;
+const kstrFetchRigUrl = "https://script.google.com/macros/s/AKfycbzi08XGMRoHElsG0C3Yt0JsOUMuVI-6QJX6ZmuskLyd4TXHTabH9ypXcssipruJgN1p/exec?rig=";
+const knAutosearchDelayMillis = 250;
+const knMinimumSearchTextLen = 2;
+const kstrRigSuffix = "-rig";
+const kStrWhereSeparatorInternal = "\t";
+const kStrWhereSeparatorUI = " : ";
 
 // Global vars
+var gMapRigContents = {};
 var gnRefreshTimerID = null;
-var gObjPendingRequest = null;
+var gArrPendingRequests = [];
 var gStrSearchText = "";
 var gStrLastJson = "";
 
@@ -13,11 +18,22 @@ var gStrLastJson = "";
 
 function init()
 {
-	var eltSearchInput = document.getElementById("SearchInput");
+	const strSearchText = localStorage.getItem("searchText");
+	const strEnabledRigsJSON = localStorage.getItem("enabledRigs");
+	const arrEnabledRigs = strEnabledRigsJSON? JSON.parse(strEnabledRigsJSON) : [];
 	
-	strSearchText = localStorage.getItem("searchText");
+	for (const i in arrEnabledRigs)
+	{
+		const strRigLetter = arrEnabledRigs[i];
+		const eltRigCheckbox = document.querySelector(`#RigSelectors input[name="${strRigLetter}"]`);
+		eltRigCheckbox.checked = true;
+		getRigData(strRigLetter, true);  // true to bSuppressFetch (since batch fetching after this loop)
+	}
+	fetchRigDataIfNeeded();
+	
 	if (strSearchText)
 	{
+		const eltSearchInput = document.getElementById("SearchInput");
 		eltSearchInput.value = strSearchText;
 		searchText_saveValueAndRefresh(strSearchText, true);
 	}
@@ -31,46 +47,45 @@ function init()
 }
 
 
-function updatePage(objResponse)
+function updatePage()
 {
-	var strSearchTextLower = objResponse.searchText.trim().toLowerCase();
-	var nSearchTextLen = strSearchTextLower.length;
-	var arrResults = objResponse.results;
+	const strSearchTextLower = gStrSearchText.toLowerCase();
+	const nSearchTextLen = strSearchTextLower.length;
 	
-	// Empty out Results table
-	var eltResultsTable = document.getElementById("ResultsTable");
+	// Empty out results table elements
+	const eltResultsTable = document.getElementById("ResultsTable");
 	while (eltResultsTable.firstChild)
 		eltResultsTable.removeChild(eltResultsTable.firstChild);
 	
-	// Insert score & match-pos into each result
-	arrResults = arrResults.map(
-		function(arrResultInfo)
-		{
-			var strItemDescrLower = arrResultInfo[0].toLowerCase();
-			var nMatchPos = strItemDescrLower.indexOf(strSearchTextLower);
-			return [getResultScore(strSearchTextLower, strItemDescrLower, nMatchPos), nMatchPos, ...arrResultInfo];
-		});
+	if (nSearchTextLen < knMinimumSearchTextLen)
+		return;
+	
+	// Combine search results for all selected rigs
+	const arrEnabledRigs = Object.keys(gMapRigContents);
+	// Combine them in alphabetical rig order, so same-score results will be in that order after final sort
+	arrEnabledRigs.sort();
+	let arrResults = [];
+	for (const i in arrEnabledRigs)
+	{
+		const strRigLetter = arrEnabledRigs[i];
+		arrResults = arrResults.concat(searchRigContents(strRigLetter, strSearchTextLower));
+	}
 	
 	// Sort results from highest to lowest score
 	arrResults.sort((arrInfo1, arrInfo2) => arrInfo2[0] - arrInfo1[0]);
 	
-	var strLastRow = null;
-	var strLastItemDescrLower = null;
-	
-	for (var i = 0; i < arrResults.length; i++)
+	// And rebuild results table...
+	let strLastItemDescrLower = null;
+	for (let i = 0; i < arrResults.length; i++)
 	{
-		var arrResult = arrResults[i];
-		var [nScore, nMatchPos, strItemDescr, arrItemWhere] = arrResult;
+		const arrResult = arrResults[i];
+		let [nScore, nMatchPos, strItemDescr, strWhere] = arrResult;
 		
-		var strItemDescrLower = strItemDescr.toLowerCase();
+		const strItemDescrLower = strItemDescr.toLowerCase();
 		if (strItemDescrLower == strLastItemDescrLower)
 			strItemDescr = "";
 		else
 			strLastItemDescrLower = strItemDescrLower;
-		
-		arrItemWhere = arrItemWhere.map(str => str.replaceAll(" / ", "/"));  // improve readability
-		removeConsecutiveRepeats(arrItemWhere);
-		var strWhere = arrItemWhere.join(" : ");
 		
 		if (strItemDescr && nMatchPos != -1)
 			strItemDescr = strItemDescr.substr(0, nMatchPos) +
@@ -81,21 +96,34 @@ function updatePage(objResponse)
 		//if (strItemDescr) strItemDescr = `(${nScore})  ${strItemDescr}`;
 		//if (strItemDescr) strItemDescr = `(${nMatchPos})  ${strItemDescr}`;
 		
+		strWhere = strWhere.replaceAll(kStrWhereSeparatorInternal, kStrWhereSeparatorUI);
 		addSearchResultRow(eltResultsTable, strItemDescr, strWhere);
 	}
 }
 
 
-function removeConsecutiveRepeats(arr)
+function searchRigContents(strRigLetter, strSearchTextLower)
 {
-	var prev = null;
-	for (var i = 0; i < arr.length; i++)
+	var arrRigContents = gMapRigContents[strRigLetter];
+	if (!arrRigContents?.length)
+		return [];	// should only be possible if backend error
+	
+	var arrResults = [];
+	for (var i = 0; i < arrRigContents.length; i++)
 	{
-		curr = arr[i];
-		if (curr == prev)
-			arr.splice(i, 1);
-		prev = curr;
+		var arrItemInfo = arrRigContents[i];
+		var strItemDescr = arrItemInfo[0].trim();  // this isn't trimmed by backend (for speed)
+		var strItemDescrLower = strItemDescr.toLowerCase();
+		var nMatchPos = strItemDescrLower.indexOf(strSearchTextLower);
+		if (nMatchPos != -1)
+		{
+			const nScore = getResultScore(strSearchTextLower, strItemDescrLower, nMatchPos);
+			var strWhere = arrItemInfo[1];  // this is already trim'med by backend
+			strWhere = strRigLetter + kstrRigSuffix + kStrWhereSeparatorInternal + strWhere;
+			arrResults.push([nScore, nMatchPos, strItemDescr, strWhere]);
+		}
 	}
+	return arrResults;
 }
 
 
@@ -147,9 +175,6 @@ function getResultScore(strSearchTextLower, strItemDescrLower, nMatchPos)
 	// Reduce score by number of letters after match
 	nScore -= (strItemDescrLower.length - nMatchEndPos);
 	
-	if (nScore < 1)
-		nScore = 1;
-	
 	return nScore;
 }
 
@@ -173,62 +198,111 @@ function addSearchResultRow(eltTable, strItemDescr, strWhere)
 }
 
 
-function refreshResults()
+function getRigData(strRigLetter, bSuppressFetch)
 {
+	gMapRigContents[strRigLetter] = null;  // indicate this rig's data needs to be fetched
+	if (!bSuppressFetch)
+		fetchRigDataIfNeeded();
+}
+
+
+function fetchRigDataIfNeeded()
+{
+	let arrRigsNeeded = [];
+	for (const strRigLetter in gMapRigContents)
+		if (!gMapRigContents[strRigLetter])
+			arrRigsNeeded.push(strRigLetter);
+	
+	if (arrRigsNeeded.length == 0)
+		return;
+	
 	showModal("AwaitResultsModal");
-	console.log("Requesting search results...");
 	
-	var TESTING = false;
-	//var TESTING = true;
-	
-	//############### FOR TESTING... ################
-	if (TESTING)
+	for (const i in arrRigsNeeded)
 	{
-		var objResponse =
-			{"searchText":"ladder",
-			 "results": [
-				["Step ladder",["USR-A","D3","Shelf / Section 1"]],
-				["Rescue Ladder",["USR-A","D4","Shelf / Section 3","Box C"]],
-				["Little Giant Ladder",["USR-A","D5","Shelf / Section 4","Box A"]],
-				["Step ladder",["USR-A","P3","Shelf / Section 1"]],
-				["Step Ladder",["USR-B","D2","Shelf / Section 6"]],
-				["Folding Ladder",["USR-B","D5","Shelf / Section 5","Shelf / Section 5"]],
-				["35 Foot, 3 Section Extension Ladder",["USR-B","Rear"]],
-				["24 Foot, 2 Section Extension Ladder",["USR-B","Rear"]],
-				["14 Foot, Roof Ladder (Hooks on both ends)",["USR-B","Rear"]],
-				["14 Foot Extension Ladder (Fresno Ladder)",["USR-B","Rear"]],
-				["10 Foot Atic Ladder",["USR-B","Rear"]]
-			]};
-		updateWithReceivedData(JSON.stringify(objResponse));
-	}
-	else
-	{
-		var objReq = new XMLHttpRequest();
-		objReq.addEventListener("load", updateWithReceivedData);
-		var strSearchUrl = kstrSearchUrl + encodeURIComponent(gStrSearchText);
-		objReq.open("GET", strSearchUrl);
+		const strRigLetter = arrRigsNeeded[i];
+		console.log(`Requesting rig contents for ${strRigLetter}${kstrRigSuffix}...`);
+		
+		const strFetchRigUrl = kstrFetchRigUrl + encodeURIComponent(strRigLetter);
+		const objReq = new XMLHttpRequest();
+		
+		objReq.addEventListener("load", storeReceivedRigData);
+		objReq.open("GET", strFetchRigUrl);
 		objReq.setRequestHeader("Content-Type", "text/plain;charset=utf-8");  // to avoid Google Apps Script CORS restriction
 		objReq.send();
-		gObjPendingRequest = objReq;
+		objReq.strRigLetter = strRigLetter;
+		
+		gArrPendingRequests.push(objReq);
 	}
 }
 
 
-function updateWithReceivedData(strResponseJson)
+function storeReceivedRigData()
 {
-	gObjPendingRequest = null;
-	strResponseJson = this.responseText || strResponseJson;
+	const strRigLetter = this.strRigLetter;
+	console.log(`Rig contents for ${strRigLetter}${kstrRigSuffix} received`);
+	applyUpdatedRigData(strRigLetter, this);
+}
+
+
+function removeRigData(strRigLetterToRemove)
+{
+	strRigLetter = strRigLetterToRemove
+	console.log(`Purging rig contents for ${strRigLetterToRemove}${kstrRigSuffix}`);
+	delete gMapRigContents[strRigLetterToRemove];  // purge this rig's data, plus indicate it's no longer needed
+	applyUpdatedRigData(strRigLetter);
+}
+
+
+function applyUpdatedRigData(strRigLetter, objResponse)
+{
+	// Remove given rig's request from pending requests (if present)
+	const objRemovedReq = removeItemIf(gArrPendingRequests, objReq => (objReq.strRigLetter == strRigLetter));
 	
-	hideModal("AwaitResultsModal");
+	// If removed request is still open, abort it
+	if (objRemovedReq && objRemovedReq.status == 0)
+		objRemovedReq.abort();
 	
-	if (strResponseJson === gStrLastJson)
-		console.log("Received same as current data from back-end");
-	else
+	const nNumPending = gArrPendingRequests.length;
+	if (nNumPending > 0)
+		console.log(`...${nNumPending} rig contents request(s) still pending`);
+	
+	if (objResponse)
 	{
-		var objResponse = JSON.parse(strResponseJson);
-		gStrLastJson = strResponseJson;
-		updatePage(objResponse);
+		// Only store data if this rig is still needed (user may have unchecked
+		// its checkbox while the fetch results were being awaited)
+		if (strRigLetter in gMapRigContents)
+		{
+			const objResponseData = JSON.parse(objResponse.responseText);
+			if (objResponseData)
+			{
+				const {rig: strRigLetter, contents: arrRigContents} = objResponseData;
+				gMapRigContents[strRigLetter] = arrRigContents;
+			}
+		}
 	}
+	
+	// Update UI if no more requests pending
+	if (nNumPending == 0)
+	{
+		hideModal("AwaitResultsModal");
+		updatePage();
+	}
+}
+
+
+function removeItemIf(arr, fcn)
+{
+	for (const i in arr)
+	{
+		const item = arr[i];
+		if (fcn(item))
+		{
+			arr.splice(i, 1);
+			return item;
+		}
+	}
+	return undefined;
 }
 
 
@@ -276,19 +350,26 @@ function searchText_saveValueAndRefresh(strVal, bImmediateRefresh)
 	
 	if (gnRefreshTimerID)
 		clearTimeout(gnRefreshTimerID);
-	if (gObjPendingRequest)
-	{
-		gObjPendingRequest.abort();
-		gObjPendingRequest = null;
-	}
 	
 	gStrSearchText = strVal;
 	localStorage.setItem("searchText", strVal);
 	
 	if (bImmediateRefresh)
-		refreshResults();
+		updatePage();
 	else
-		gnRefreshTimerID = setTimeout(refreshResults, knAutosearchDelayMillis);
+		gnRefreshTimerID = setTimeout(updatePage, knAutosearchDelayMillis);
+}
+
+
+function rigSelect_onClick(eltRigCheckbox)
+{
+	const strRigLetter = eltRigCheckbox.name;
+	if (eltRigCheckbox.checked)
+		getRigData(strRigLetter);
+	else
+		removeRigData(strRigLetter);
+	
+	localStorage.setItem("enabledRigs", JSON.stringify(Object.keys(gMapRigContents)));
 }
 
 
@@ -296,7 +377,6 @@ function showModal(strModalID)
 {
 	document.getElementById("ModalOverlay").style.display = "flex";
 	document.getElementById(strModalID).style.display = "block";
-
 }
 
 function hideModal(strModalID)
@@ -304,4 +384,5 @@ function hideModal(strModalID)
 	document.getElementById("ModalOverlay").style.display = "none";
 	document.getElementById(strModalID).style.display = "none";
 }
+
 
