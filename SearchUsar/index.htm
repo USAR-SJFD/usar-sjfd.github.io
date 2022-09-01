@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en" xml:lang="en" xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    
+    <meta charset="UTF-8">
+    <meta name="google" content="notranslate">
+    <meta http-equiv="Content-Language" content="en">
+    
+    <title>USAR Inventory Search</title>
+    
+    <link rel="icon" href="favicon.png" type="image/x-icon" />
+    <link rel="shortcut icon" href="favicon.png" type="image/x-icon" />
+    <link rel="apple-touch-icon-precomposed" href="favicon.png" />
+    
+    <script type="text/javascript" src="SearchUsar.js"></script>
+    <link href="SearchUsar.css" rel="stylesheet" type="text/css" media="all" />
+  </head>
+  
+  <body onload="init()">
+    
+    <div id="PageHeader">
+      <form id="SearchForm" target="." onsubmit="searchInput_onSubmit()">
+        <input id="SearchInput" type="search" name="Search" size="60"
+          value=""
+          onKeyDown="searchInput_onKeyDown(this, event)"
+          onKeyUp="searchInput_onKeyUp(this, event)"
+          />
+        <img id="SearchButton" src="SearchButton.png" onclick="searchInput_onSubmit()" />
+      </form>
+    </div>
+    
+    <div id="ModalOverlay" class="ModalOverlay">
+      <div id="AwaitResultsModal" class="ModalDialog">
+        <img class="RefreshAnim" src="RefreshAnim.gif" />
+      </div>
+    </div>
+    <div id="HeadingSpacer">&nbsp;</div>
+    <table id="ResultsTable"></table>
+    
+  </body>
+</html>

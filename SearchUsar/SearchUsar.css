@@ -1,0 +1,103 @@
+
+html, body {
+  overflow: auto;
+  font-style: normal;
+  font-family: tahoma, arial, verdana, sans-serif;
+  font-size: 104%;
+  padding: 0;
+  border: 0 none;
+}
+
+#PageHeader {
+  background-color: #DDDDDD;
+  box-shadow: 0 0 0.4em 0.15em #999999;
+  position: fixed;
+  z-index: 101;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+#SearchForm {
+  margin-top:    0.2em;
+  margin-bottom: 0.7em;
+  margin-left:   0.8em;
+  margin-right:  0.8em;
+}
+
+#SearchInput {
+  background-color: #F5F5F5;
+  font-size: 106%;
+  position: relative;
+  margin-top: 0;
+  padding-top: 0.1em;
+  padding-left: 0.3em;
+  width: calc(100% - 2.2em);
+}
+
+#SearchButton {
+  position: relative;
+  top: 0.6em;
+  width: 1.9em;
+  height: 1.9em;
+  cursor: pointer;
+}
+
+span.MatchText {
+  font-weight: bold;
+}
+
+#ResultsTable {
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+#ResultsTable tr:last-child {
+  border-bottom: 1px solid #DDDDDD;
+}
+#ResultsTable tr td:nth-child(1) {
+  padding-top:   0.2em;
+  padding-right: 1em;
+}
+#ResultsTable tr td:nth-child(1):not(:empty) {
+  border-top: 1px solid #DDDDDD;
+}
+#ResultsTable tr td:nth-child(2) {
+  border-top: 1px solid #DDDDDD;
+  color: #757575;
+  font-size: 90%;
+  font-style: italic;
+  vertical-align: middle;
+  padding-top:   0.2em;
+  padding-left:  0.5em;
+  padding-right: 0.2em;
+}
+
+
+.RefreshAnim {
+  margin: auto;
+  position: absolute;
+  top: 0; left: 0; bottom: 0; right: 0;
+  width: 2em;
+  height: 2em;
+}
+
+.ModalDialog {
+  display: none;
+  position: fixed;
+  width: 100%;
+  height: 100%;
+}
+
+.ModalOverlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 100;
+  background-color: rgba(230,230,230,0.7);
+  align-items: flex-start;
+  justify-content: center;
+}
+
