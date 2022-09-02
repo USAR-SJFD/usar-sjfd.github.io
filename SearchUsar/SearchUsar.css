@@ -1,6 +1,6 @@
 
 :root {
-  --scale: 115%;
+  --scaleBase: 115%;
   --sizeBase: 1em;
   --separatorColor: #444444;
 }
@@ -9,7 +9,7 @@ html, body {
   overflow: auto;
   font-style: normal;
   font-family: tahoma, arial, verdana, sans-serif;
-  font-size: var(--scale);
+  font-size: var(--scaleBase);
   padding: 0;
   border: 0 none;
 }
@@ -32,7 +32,7 @@ html, body {
 }
 
 #RigSelectors input {
-  transform: scale(1.2);
+  transform: scale(1.9);
   height: 1.2em;
 }
 
@@ -45,8 +45,8 @@ html, body {
   width: calc(100% - (var(--sizeBase) * 2.3));
   overflow: hidden;
   background-color: #F5F5F5;
-  font-size: calc(var(--sizeBase) * 1.1);
-  margin-top: 0.2em;
+  font-size: var(--sizeBase);
+  margin-top: 0.3em;
   padding-top: 0.1em;
   padding-left: 0.3em;
 }
@@ -65,8 +65,8 @@ span.MatchText {
 #ResultsTable {
   border-spacing: 0;
 }
-#ResultsTable tr:last-child {
-  border-bottom: 1px solid var(--separatorColor);
+#ResultsTable tr td {
+  vertical-align: top;
 }
 #ResultsTable tr td:nth-child(1) {
   padding-top: 0.3em;
@@ -81,7 +81,7 @@ span.MatchText {
 }
 #ResultsTable tr td:nth-child(2) {
   border-top: 1px solid var(--separatorColor);
-  font-size: calc(var(--sizeBase) * 0.8);
+  font-size: calc(var(--sizeBase) * 0.9);
   font-style: italic;
   vertical-align: middle;
   padding-top: 0.3em;
@@ -89,6 +89,9 @@ span.MatchText {
   padding-right: 0.2em;
   padding-left: 1.5em;
   text-indent:-1em;
+}
+#ResultsTable tr:last-child td {
+  border-bottom: 1px solid var(--separatorColor);
 }
 
 
