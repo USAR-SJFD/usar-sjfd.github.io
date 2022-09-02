@@ -2,7 +2,7 @@
 :root {
   --scaleBase: 115%;
   --sizeBase: 1em;
-  --separatorColor: #606060;
+  --separatorColor: #999999;
   --toggleCheckedColor: #0075FF;
 }
 
@@ -44,8 +44,8 @@ html, body {
   text-align: center;
   font-size: calc(var(--sizeBase) * 1.1);
   width: 1.7em;
-  padding-top: 0.3em;
-  padding-bottom: 0.2em;
+  padding-top: 0.2em;
+  padding-bottom: 0.1em;
   padding-left: 0.2em;
   margin-right: 0.1em;
   color: #505050;
@@ -74,6 +74,10 @@ html, body {
   margin-top: 0.2em;
   padding-top: 0.1em;
   padding-left: 0.3em;
+}
+#SearchInput::placeholder {
+  font-style: italic;
+  filter: brightness(1.1);
 }
 
 #SearchButton {

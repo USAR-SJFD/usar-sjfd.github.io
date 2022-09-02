@@ -57,6 +57,9 @@ function updatePage()
 	while (eltResultsTable.firstChild)
 		eltResultsTable.removeChild(eltResultsTable.firstChild);
 	
+	// Restore scroll to top of window
+	window.scrollTo({top: 0, left: 0, behavior: "smooth"});
+	
 	if (nSearchTextLen < knMinimumSearchTextLen)
 		return;
 	
