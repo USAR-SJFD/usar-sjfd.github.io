@@ -124,6 +124,16 @@ span.MatchText {
 }
 
 
+#StatusMessage {
+  width: 100%;
+  justify-content: center;
+  text-align: center;
+  padding-top: 7.5em;
+  font-size: calc(var(--sizeBase) * 1.2);
+  font-style: italic;
+  color: #909090;
+}
+
 .RefreshAnim {
   margin: auto;
   position: absolute;

@@ -57,15 +57,18 @@ function updatePage()
 	while (eltResultsTable.firstChild)
 		eltResultsTable.removeChild(eltResultsTable.firstChild);
 	
-	// Restore scroll to top of window
+	// Restore scroll to top of window, and show or hide status message as needed
 	window.scrollTo({top: 0, left: 0, behavior: "smooth"});
+	showHideStatusMessage();
 	
-	if (nSearchTextLen < knMinimumSearchTextLen)
+	const arrEnabledRigs = Object.keys(gMapRigContents);
+	const bNoRigsSelected = (arrEnabledRigs.length == 0);
+	
+	if (bNoRigsSelected || nSearchTextLen < knMinimumSearchTextLen)
 		return;
 	
-	// Combine search results for all selected rigs
-	const arrEnabledRigs = Object.keys(gMapRigContents);
-	// Combine them in alphabetical rig order, so same-score results will be in that order after final sort
+	// Combine search results for all selected rigs -- in alphabetical rig order,
+	// so same-score results will be in that order after final sort
 	arrEnabledRigs.sort();
 	let arrResults = [];
 	for (const i in arrEnabledRigs)
@@ -102,6 +105,15 @@ function updatePage()
 		strWhere = strWhere.replaceAll(kStrWhereSeparatorInternal, kStrWhereSeparatorUI);
 		addSearchResultRow(eltResultsTable, strItemDescr, strWhere);
 	}
+}
+
+
+function showHideStatusMessage()
+{
+	const arrEnabledRigs = Object.keys(gMapRigContents);
+	const bNoRigsSelected = (arrEnabledRigs.length == 0);
+	const eltStatusMessage = document.getElementById("StatusMessage");
+	eltStatusMessage.style.display = bNoRigsSelected? "block" : "none";
 }
 
 
@@ -211,6 +223,9 @@ function getRigData(strRigLetter, bSuppressFetch)
 
 function fetchRigDataIfNeeded()
 {
+	// Show or hide status message as needed
+	showHideStatusMessage();
+
 	let arrRigsNeeded = [];
 	for (const strRigLetter in gMapRigContents)
 		if (!gMapRigContents[strRigLetter])
