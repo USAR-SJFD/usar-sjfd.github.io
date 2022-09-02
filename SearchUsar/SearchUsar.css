@@ -125,6 +125,7 @@ span.MatchText {
 
 
 #StatusMessage {
+  display: none;
   width: 100%;
   justify-content: center;
   text-align: center;
