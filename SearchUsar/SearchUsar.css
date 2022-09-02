@@ -2,9 +2,10 @@
 :root {
   --scaleBase: 115%;
   --sizeBase: 1em;
-  --separatorColor: #999999;
+  --separatorColor: #BBBBBB;
   --toggleCheckedColor: #0075FF;
 }
+
 
 html, body {
   overflow: auto;
@@ -14,6 +15,7 @@ html, body {
   padding: 0;
   border: 0 none;
 }
+
 
 #PageHeader {
   background-color: #DDDDDD;
@@ -25,12 +27,14 @@ html, body {
   right: 0;
 }
 
+
 #SearchForm {
   margin-top:    0.7em;
   margin-bottom: 0.7em;
   margin-left:   0.8em;
   margin-right:  0.6em;
 }
+
 
 #RigToggles {
   margin-bottom: 0.3em;
@@ -66,8 +70,9 @@ html, body {
   transform: translateY(-1px);
 }
 
+
 #SearchInput {
-  width: calc(100% - (var(--sizeBase) * 2.5));
+  width: calc(100% - 0.2em);
   overflow: hidden;
   background-color: #F5F5F5;
   font-size: var(--sizeBase);
@@ -77,19 +82,9 @@ html, body {
 }
 #SearchInput::placeholder {
   font-style: italic;
-  filter: brightness(1.1);
+  filter: brightness(1.07);
 }
 
-#SearchButton {
-  float: right;
-  width: calc(var(--sizeBase) * 2.2);
-  height: calc(var(--sizeBase) * 2.2);
-  cursor: pointer;
-}
-
-span.MatchText {
-  font-weight: bold;
-}
 
 #ResultsTable {
   border-spacing: 0;
@@ -121,6 +116,11 @@ span.MatchText {
 }
 #ResultsTable tr:last-child td {
   border-bottom: 1px solid var(--separatorColor);
+}
+
+
+span.MatchText {
+  font-weight: bold;
 }
 
 
