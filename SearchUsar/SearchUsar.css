@@ -49,8 +49,7 @@ html, body {
   background-color: #EEEEEE;
   text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
   box-shadow: 1px 1px 3px 1px rgba(0, 0, 0, 0.2) inset;
-  border: 2px solid lightgray;
-  border-style: inset;
+  border: 2px inset lightgray;
   border-radius: 5px;
   cursor: pointer;
 }
@@ -60,8 +59,8 @@ html, body {
   text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.4);
   box-shadow: none;
   box-shadow: 1px 1px 1px 1px rgba(0, 0, 0, 0.2);
-  border: 2px solid gray;
-  border-style: outset;
+  border: 2px outset #626262;
+  transform: translateY(-1px);
 }
 
 #SearchInput {
