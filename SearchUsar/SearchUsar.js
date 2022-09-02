@@ -25,7 +25,7 @@ function init()
 	for (const i in arrEnabledRigs)
 	{
 		const strRigLetter = arrEnabledRigs[i];
-		const eltRigCheckbox = document.querySelector(`#RigSelectors input[name="${strRigLetter}"]`);
+		const eltRigCheckbox = document.querySelector(`#RigToggles input[name="${strRigLetter}"]`);
 		eltRigCheckbox.checked = true;
 		getRigData(strRigLetter, true);  // true to bSuppressFetch (since batch fetching after this loop)
 	}

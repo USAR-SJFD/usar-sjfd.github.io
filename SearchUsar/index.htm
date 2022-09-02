@@ -25,9 +25,9 @@
     
     <div id="PageHeader">
       <form id="SearchForm" target="." onsubmit="searchInput_onSubmit()">
-        <div id="RigSelectors">
-          <input type="checkbox" id="A_rig" name="A" onclick="rigSelect_onClick(this)" /><label for="A_rig">A</label>
-          <input type="checkbox" id="B_rig" name="B" onclick="rigSelect_onClick(this)" /><label for="B_rig">B</label>
+        <div id="RigToggles">
+          <label><input type="checkbox" name="A" onclick="rigSelect_onClick(this)" /><span>A</span></label>
+          <label><input type="checkbox" name="B" onclick="rigSelect_onClick(this)" /><span>B</span></label>
         </div>
         <input id="SearchInput" type="search" name="Search" value=""
           onKeyDown="searchInput_onKeyDown(this, event)"
