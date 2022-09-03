@@ -1,6 +1,6 @@
 
 // Global consts
-const kstrFetchRigUrl = "https://script.google.com/macros/s/AKfycbzi08XGMRoHElsG0C3Yt0JsOUMuVI-6QJX6ZmuskLyd4TXHTabH9ypXcssipruJgN1p/exec?rig=";
+const kstrFetchRigUrl = "https://script.google.com/macros/s/AKfycbzRRG9bZTQp9R8M_HE6YCKBczOwU9Uw3vquNndBwwirbUCgLGA3MGPeMfRkOCJA15uh/exec?rig=";
 const knAutosearchDelayMillis = 50;
 const knMinimumSearchTextLen = 2;
 const kstrRigSuffix = "-rig";
