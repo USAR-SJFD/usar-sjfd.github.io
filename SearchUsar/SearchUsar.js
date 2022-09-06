@@ -1,16 +1,18 @@
 
 // Global consts
-const kstrFetchRigUrl = "https://script.google.com/macros/s/AKfycbzRRG9bZTQp9R8M_HE6YCKBczOwU9Uw3vquNndBwwirbUCgLGA3MGPeMfRkOCJA15uh/exec?rig=";
-const knAutosearchDelayMillis = 50;
+const kstrFetchRigUrl = "https://script.google.com/macros/s/AKfycbzGIqvUXkw2Qrp3fj2FcXFxKNmdS2Es1XtF7ojJJNcL2vL8rRlckF8ucEmVD0ogLpHg/exec?rig=";
+const kstrGetModTimeUrlParam = "&getModTime=1";
+const kstrIfNewerUrlParam = "&ifNewer=";
+const kCacheRigSuffix = "_riginfo";
+const knAutosearchDelayMillis = 5;
 const knMinimumSearchTextLen = 2;
-const kstrRigSuffix = "-rig";
 const kStrWhereSeparatorInternal = "\t";
 const kStrWhereSeparatorUI = " : ";
 
 // Global vars
 var gMapRigContents = {};
 var gnRefreshTimerID = null;
-var gArrPendingRequests = [];
+var gMapPendingContentRequests = {};
 var gStrSearchText = "";
 var gStrLastJson = "";
 
@@ -27,9 +29,8 @@ function init()
 		const strRigLetter = arrEnabledRigs[i];
 		const eltRigCheckbox = document.querySelector(`#RigToggles input[name="${strRigLetter}"]`);
 		eltRigCheckbox.checked = true;
-		getRigData(strRigLetter, true);  // true to bSuppressFetch (since batch fetching after this loop)
+		loadRig(strRigLetter);
 	}
-	fetchRigDataIfNeeded();
 	
 	if (strSearchText)
 	{
@@ -47,7 +48,7 @@ function init()
 }
 
 
-function updatePage()
+function updateSearchResults()
 {
 	const strSearchTextLower = gStrSearchText.toLowerCase();
 	const nSearchTextLen = strSearchTextLower.length;
@@ -119,28 +120,59 @@ function showHideStatusMessage()
 
 function searchRigContents(strRigLetter, strSearchTextLower)
 {
-	var arrRigContents = gMapRigContents[strRigLetter];
+	const objRigInfo = gMapRigContents[strRigLetter];
+	const arrRigContents = objRigInfo?.contents;
 	if (!arrRigContents?.length)
 		return [];	// should only be possible if backend error
+	
+	const displayName = objRigInfo.displayName;
+	const addRigToWhere = (typeof displayName === "string")? addRigNameToWhere : addSubrigNameToWhere;
 	
 	var arrResults = [];
 	for (var i = 0; i < arrRigContents.length; i++)
 	{
 		var arrItemInfo = arrRigContents[i];
-		var strItemDescr = arrItemInfo[0].trim();  // this isn't trimmed by backend (for speed)
+		var strItemDescr = arrItemInfo[0];
 		var strItemDescrLower = strItemDescr.toLowerCase();
 		var nMatchPos = strItemDescrLower.indexOf(strSearchTextLower);
 		if (nMatchPos != -1)
 		{
 			const nScore = getResultScore(strSearchTextLower, strItemDescrLower, nMatchPos);
-			var strWhere = arrItemInfo[1];  // this is already trim'med by backend
-			strWhere = strRigLetter + kstrRigSuffix + kStrWhereSeparatorInternal + strWhere;
+			var strWhere = addRigToWhere(arrItemInfo[1], displayName);
+			//// '🞨' is "thin saltire" symbol, '&#8239;' is "narrow non-breaking space"
+			//strItemDescr = strItemDescr.replaceAll(" × ", " 🞨&#8239;");
+			// '⨯' is "cross product" symbol, '&#8239;' is "narrow non-breaking space"
+			strItemDescr = strItemDescr.replaceAll(" × ", " ⨯&#8239;");
 			arrResults.push([nScore, nMatchPos, strItemDescr, strWhere]);
 		}
 	}
 	return arrResults;
 }
 
+
+function addRigNameToWhere(strWhere, strRigName)
+{
+	return strRigName + kStrWhereSeparatorInternal + strWhere;
+}
+
+
+function addSubrigNameToWhere(strWhere, mapSubrigDisplayNames)
+{
+	var nFirstTabIndex = strWhere.indexOf('\t');
+	if (nFirstTabIndex < 1)
+		nFirstTabIndex = strWhere.length;
+	
+	// A fallthrough to "???" should only be possible if backend error
+	strRigName = mapSubrigDisplayNames[strWhere.substring(0, nFirstTabIndex)] || "???";
+	return strRigName + strWhere.substr(nFirstTabIndex);
+}
+
+
+function makeWhereString(strWhereInternal, mapSubrigDisplayNames)
+{
+	
+	strWhere = strRigLetter + kstrRigSuffix + kStrWhereSeparatorInternal + strWhere;
+}
 
 function getResultScore(strSearchTextLower, strItemDescrLower, nMatchPos)
 {
@@ -213,114 +245,135 @@ function addSearchResultRow(eltTable, strItemDescr, strWhere)
 }
 
 
-function getRigData(strRigLetter, bSuppressFetch)
+function sendRequest(strRigLetter, strAdditionalParam, fcnOnResponse)
 {
-	gMapRigContents[strRigLetter] = null;  // indicate this rig's data needs to be fetched
-	if (!bSuppressFetch)
-		fetchRigDataIfNeeded();
+	const strUrl = kstrFetchRigUrl + encodeURIComponent(strRigLetter) + (strAdditionalParam || "");
+	const objReq = new XMLHttpRequest();
+	objReq.addEventListener("load", fcnOnResponse);
+	objReq.open("GET", strUrl);
+	objReq.setRequestHeader("Content-Type", "text/plain;charset=utf-8");  // to avoid Google Apps Script CORS restriction
+	objReq.send();
+	objReq.strRigLetter = strRigLetter;  // remember which rig, in case response fails to include it
+	return objReq;
 }
 
 
-function fetchRigDataIfNeeded()
+function loadRig(strRigLetter)
 {
-	// Show or hide status message as needed
-	showHideStatusMessage();
-
-	let arrRigsNeeded = [];
-	for (const strRigLetter in gMapRigContents)
-		if (!gMapRigContents[strRigLetter])
-			arrRigsNeeded.push(strRigLetter);
-	
-	if (arrRigsNeeded.length == 0)
-		return;
-	
-	showModal("AwaitResultsModal");
-	
-	for (const i in arrRigsNeeded)
+	const strCachedRigInfoJSON = localStorage.getItem(strRigLetter + kCacheRigSuffix);
+	objRigInfo = strCachedRigInfoJSON && JSON.parse(strCachedRigInfoJSON);
+	if (strCachedRigInfoJSON)
 	{
-		const strRigLetter = arrRigsNeeded[i];
-		console.log(`Requesting rig contents for ${strRigLetter}${kstrRigSuffix}...`);
+		// In cache
+		console.log(`Loading ${strRigLetter} rig content from local cache; asynchronously checking server for updates...`);
+		const objRigInfo = strCachedRigInfoJSON && JSON.parse(strCachedRigInfoJSON);
+		gMapRigContents[strRigLetter] = objRigInfo;
+		updateUIMode();
+		updateSearchResults();
 		
-		const strFetchRigUrl = kstrFetchRigUrl + encodeURIComponent(strRigLetter);
-		const objReq = new XMLHttpRequest();
+		// Request this rig file's modTime, then recache if it's newer than our cache
+		sendRequest(strRigLetter, kstrGetModTimeUrlParam, recacheRigIfNeeded);
+	}
+	else if (!gMapPendingContentRequests[strRigLetter])
+	{
+		// Not in cache & there's not already a request pending for this rig
+		console.log(`Requesting ${strRigLetter} rig content from server...`);
+		const objReq = sendRequest(strRigLetter, null, storeReceivedRigContent);
+		gMapPendingContentRequests[strRigLetter] = objReq;
+		updateUIMode();
+	}
+	else
+		console.log(`Already requesting ${strRigLetter} rig content from server...`);
+}
+
+
+// Called when rig has been "unselected"
+function removeRig(strRigLetter)
+{
+	console.log(`Purging rig contents for ${strRigLetter} rig`);
+	// Remove pending request for this rig's contents, if any
+	unpendRigRequest(strRigLetter);
+	delete gMapRigContents[strRigLetter];
+	updateUIMode();
+	updateSearchResults();
+}
+
+
+function unpendRigRequest(strRigLetter)
+{
+	// Was a request for this rig's contents pending?
+	const objRemoveReq = gMapPendingContentRequests[strRigLetter];
+	if (objRemoveReq)
+	{
+		// Yes; remove it from the pending requests map
+		delete gMapPendingContentRequests[strRigLetter];
+		// And abort it if still open
+		if (objRemoveReq.status == 0)
+			objRemoveReq.abort();
 		
-		objReq.addEventListener("load", storeReceivedRigData);
-		objReq.open("GET", strFetchRigUrl);
-		objReq.setRequestHeader("Content-Type", "text/plain;charset=utf-8");  // to avoid Google Apps Script CORS restriction
-		objReq.send();
-		objReq.strRigLetter = strRigLetter;
-		
-		gArrPendingRequests.push(objReq);
+		const nNumPending = Object.keys(gMapPendingContentRequests).length;
+		if (nNumPending)
+			console.log(`...${nNumPending} rig contents request(s) still pending`);
+		else
+			console.log(`--> All rig contents requests completed`);
 	}
 }
 
 
-function storeReceivedRigData()
+function recacheRigIfNeeded()
 {
-	const strRigLetter = this.strRigLetter;
-	console.log(`Rig contents for ${strRigLetter}${kstrRigSuffix} received`);
-	applyUpdatedRigData(strRigLetter, this);
+	const objResponse = this;
+	var objModTimeInfo = JSON.parse(objResponse.responseText);
+	if (objModTimeInfo)
+	{
+		const strRigLetter = objModTimeInfo.rig;
+		const objLocalRigInfo = gMapRigContents[strRigLetter];
+		const nCacheModTime = objLocalRigInfo?.modTime && (parseInt(objLocalRigInfo.modTime) || 0);
+		const nRemoteModTime = objModTimeInfo?.modTime && parseInt(objModTimeInfo.modTime);
+		if (nRemoteModTime && (nRemoteModTime > nCacheModTime))
+		{
+			console.log(`--> Newer ${strRigLetter} rig content on server; clearing local cache & refetching`);
+			// Remove from cache
+			localStorage.removeItem(strRigLetter + kCacheRigSuffix);
+			// And re-fetch
+			loadRig(strRigLetter);
+		}
+		else
+			console.log(`--> Local cache for ${strRigLetter} rig is up to date with server`);
+	}
 }
 
 
-function removeRigData(strRigLetterToRemove)
+function storeReceivedRigContent()
 {
-	strRigLetter = strRigLetterToRemove
-	console.log(`Purging rig contents for ${strRigLetterToRemove}${kstrRigSuffix}`);
-	delete gMapRigContents[strRigLetterToRemove];  // purge this rig's data, plus indicate it's no longer needed
-	applyUpdatedRigData(strRigLetter);
-}
-
-
-function applyUpdatedRigData(strRigLetter, objResponse)
-{
-	// Remove given rig's request from pending requests (if present)
-	const objRemovedReq = removeItemIf(gArrPendingRequests, objReq => (objReq.strRigLetter == strRigLetter));
+	const objResponse = this;
+	const strRigLetter = objResponse.strRigLetter;
 	
-	// If removed request is still open, abort it
-	if (objRemovedReq && objRemovedReq.status == 0)
-		objRemovedReq.abort();
+	// Remove pending request for this rig's contents
+	unpendRigRequest(strRigLetter);
+	updateUIMode();
 	
-	const nNumPending = gArrPendingRequests.length;
-	if (nNumPending > 0)
-		console.log(`...${nNumPending} rig contents request(s) still pending`);
-	
+	var objRigInfo = null;
 	if (objResponse)
 	{
-		// Only store data if this rig is still needed (user may have unchecked
-		// its checkbox while the fetch results were being awaited)
-		if (strRigLetter in gMapRigContents)
+		const strRigInfoJSON = objResponse.responseText;
+		var objRigInfo = JSON.parse(strRigInfoJSON);
+		if (objRigInfo)
 		{
-			const objResponseData = JSON.parse(objResponse.responseText);
-			if (objResponseData)
+			// Cache this new version of contents to localStorage
+			const strReceivedRigLetter = objRigInfo.rig || strRigLetter;
+			console.log(`--> Rig contents for ${strReceivedRigLetter} rig received`);
+			localStorage.setItem(strReceivedRigLetter + kCacheRigSuffix, strRigInfoJSON);
+			
+			// Only apply data if this rig is still needed (user may have unchecked
+			// its checkbox while the fetch results were being awaited)
+			if (strReceivedRigLetter in gMapRigContents)
 			{
-				const {rig: strRigLetter, contents: arrRigContents} = objResponseData;
-				gMapRigContents[strRigLetter] = arrRigContents;
+				gMapRigContents[strReceivedRigLetter] = objRigInfo;
+				updateSearchResults();
 			}
 		}
 	}
-	
-	// Update UI if no more requests pending
-	if (nNumPending == 0)
-	{
-		hideModal("AwaitResultsModal");
-		updatePage();
-	}
-}
-
-
-function removeItemIf(arr, fcn)
-{
-	for (const i in arr)
-	{
-		const item = arr[i];
-		if (fcn(item))
-		{
-			arr.splice(i, 1);
-			return item;
-		}
-	}
-	return undefined;
 }
 
 
@@ -373,9 +426,9 @@ function searchText_saveValueAndRefresh(strVal, bImmediateRefresh)
 	localStorage.setItem("searchText", strVal);
 	
 	if (bImmediateRefresh)
-		updatePage();
+		updateSearchResults();
 	else
-		gnRefreshTimerID = setTimeout(updatePage, knAutosearchDelayMillis);
+		gnRefreshTimerID = setTimeout(updateSearchResults, knAutosearchDelayMillis);
 }
 
 
@@ -383,24 +436,30 @@ function rigSelect_onClick(eltRigCheckbox)
 {
 	const strRigLetter = eltRigCheckbox.name;
 	if (eltRigCheckbox.checked)
-		getRigData(strRigLetter);
+		loadRig(strRigLetter);
 	else
-		removeRigData(strRigLetter);
-	
+		removeRig(strRigLetter);
 	localStorage.setItem("enabledRigs", JSON.stringify(Object.keys(gMapRigContents)));
 }
 
 
-function showModal(strModalID)
+function updateUIMode()
 {
-	document.getElementById("ModalOverlay").style.display = "flex";
-	document.getElementById(strModalID).style.display = "block";
+	// Show or hide status message, depending on whether any rigs are selected or not
+	const bNoRigsSelected = (Object.keys(gMapRigContents).length === 0);
+	const eltStatusMessage = document.getElementById("StatusMessage");
+	eltStatusMessage.style.display = bNoRigsSelected? "block" : "none";
+	
+	// Show or hide "waiting" modal, depending on whether any content requests are pending
+	const bPendingContentRequests = (Object.keys(gMapPendingContentRequests).length !== 0);
+	showHideModal("AwaitResultsModal", bPendingContentRequests);
 }
 
-function hideModal(strModalID)
+
+function showHideModal(strModalID, bShow)
 {
-	document.getElementById("ModalOverlay").style.display = "none";
-	document.getElementById(strModalID).style.display = "none";
+	document.getElementById("ModalOverlay").style.display = bShow? "flex" : "none";
+	document.getElementById(strModalID).style.display = bShow? "block" : "none";
 }
 
 
