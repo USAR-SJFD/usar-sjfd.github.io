@@ -1,6 +1,6 @@
 
 :root {
-  --scaleBase: 115%;
+  --scaleBase: 110%;
   --sizeBase: 1em;
   --separatorColor: #BBBBBB;
   --toggleCheckedColor: #0075FF;
@@ -10,7 +10,7 @@
 html, body {
   overflow: auto;
   font-style: normal;
-  font-family: tahoma, arial, verdana, sans-serif;
+  font-family: arial, sans-serif;
   font-size: var(--scaleBase);
   padding: 0;
   border: 0 none;
@@ -29,8 +29,8 @@ html, body {
 
 
 #SearchForm {
-  margin-top:    0.7em;
-  margin-bottom: 0.7em;
+  margin-top:    0.5em;
+  margin-bottom: 0.5em;
   margin-left:   0.8em;
   margin-right:  0.6em;
 }
@@ -47,7 +47,7 @@ html, body {
   justify-content: center;
   text-align: center;
   font-size: calc(var(--sizeBase) * 1.1);
-  width: 1.7em;
+  width: 1.5em;
   padding-top: 0.2em;
   padding-bottom: 0.1em;
   padding-left: 0.2em;
@@ -76,7 +76,7 @@ html, body {
   overflow: hidden;
   background-color: #F5F5F5;
   font-size: var(--sizeBase);
-  margin-top: 0.2em;
+  margin-top: 0.4em;
   padding-top: 0.1em;
   padding-left: 0.3em;
 }
@@ -123,6 +123,16 @@ span.MatchText {
   font-weight: bold;
 }
 
+span.Quantity {
+  color: #707070;
+  font-size: calc(var(--sizeBase) * 0.9);
+}
+
+span.MainWhere {
+  font-weight: bold;
+  color: red;
+}
+
 
 #StatusMessage {
   display: none;
@@ -138,16 +148,18 @@ span.MatchText {
 .RefreshAnim {
   margin: auto;
   position: absolute;
-  top: 0; left: 0; bottom: 0; right: 0;
+  top: 30%;
+  left: 0;
+  right: 0;
   width: 2em;
   height: 2em;
 }
 
 .ModalDialog {
   display: none;
-  position: fixed;
   width: 100%;
   height: 100%;
+  margin: auto;
 }
 
 .ModalOverlay {
@@ -159,7 +171,5 @@ span.MatchText {
   height: 100%;
   z-index: 100;
   background-color: rgba(230,230,230,0.7);
-  align-items: flex-start;
-  justify-content: center;
 }
 

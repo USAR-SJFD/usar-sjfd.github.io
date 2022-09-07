@@ -1,17 +1,25 @@
 
 // Global consts
-const kstrFetchRigUrl = "https://script.google.com/macros/s/AKfycbzGIqvUXkw2Qrp3fj2FcXFxKNmdS2Es1XtF7ojJJNcL2vL8rRlckF8ucEmVD0ogLpHg/exec?rig=";
+const kArrInitialRigs = ["A", "B"];
+const kstrServerUrl = "https://script.google.com/macros/s/AKfycby4ORVh8S1bI1bM0uhfVgNG0ZtxysRM6TpF9SnOcJ9LbhO9r8cTC02dRrX76gRZaO84/exec?rig=";
+const kstrGetRigListUrlParam = "&getRigList=1";
 const kstrGetModTimeUrlParam = "&getModTime=1";
-const kstrIfNewerUrlParam = "&ifNewer=";
 const kCacheRigSuffix = "_riginfo";
-const knAutosearchDelayMillis = 5;
 const knMinimumSearchTextLen = 2;
-const kStrWhereSeparatorInternal = "\t";
-const kStrWhereSeparatorUI = " : ";
+const kStrInternalSeparator = "\t";
+
+const kStrQuantitySeparator = " ⨉&nbsp;";  // 'n-ary times operator' (unicode 10761) + 'narrow no-break space'
+const kStrWhereSeparator = " ≫ ";           // 'much greater-than' (unicode 8811)
+//const kStrWhereSeparator = " ▻ ";
+//const kStrWhereSeparator = " ➤ ";
+//const kStrWhereSeparator = " ⨠ ";
+//const kStrWhereSeparator = "&thinsp;➝ ";
+//const kStrWhereSeparator = "&thinsp;➛ ";
+
 
 // Global vars
+var gMapRigToggles = {};
 var gMapRigContents = {};
-var gnRefreshTimerID = null;
 var gMapPendingContentRequests = {};
 var gStrSearchText = "";
 var gStrLastJson = "";
@@ -20,23 +28,29 @@ var gStrLastJson = "";
 
 function init()
 {
-	const strSearchText = localStorage.getItem("searchText");
 	const strEnabledRigsJSON = localStorage.getItem("enabledRigs");
 	const arrEnabledRigs = strEnabledRigsJSON? JSON.parse(strEnabledRigsJSON) : [];
+	const strSearchText = localStorage.getItem("searchText");
+	
+	setupRigToggles();
+	sendRequest("", kstrGetRigListUrlParam, response_updateRigList);
 	
 	for (const i in arrEnabledRigs)
 	{
 		const strRigLetter = arrEnabledRigs[i];
 		const eltRigCheckbox = document.querySelector(`#RigToggles input[name="${strRigLetter}"]`);
-		eltRigCheckbox.checked = true;
-		loadRig(strRigLetter);
+		if (eltRigCheckbox)
+		{
+			eltRigCheckbox.checked = true;
+			loadRig(strRigLetter);
+		}
 	}
 	
 	if (strSearchText)
 	{
 		const eltSearchInput = document.getElementById("SearchInput");
 		eltSearchInput.value = strSearchText;
-		searchText_saveValueAndRefresh(strSearchText, true);
+		searchText_saveValueAndRefresh(strSearchText);
 	}
 	
 	// Header is floating fixed, so pad the rest of the content (Calls) down to just below header
@@ -45,6 +59,63 @@ function init()
 	document.getElementById("ModalOverlay").style.top = nPageHeaderHeight + "px";
 	var nOverlayHeight = document.getElementById("ModalOverlay").offsetHeight - nPageHeaderHeight;
 	document.getElementById("AwaitResultsModal").style.height = nOverlayHeight + "px";
+	
+	updateUIMode();
+	updateSearchResults();
+}
+
+
+function response_updateRigList()
+{
+	const objResponse = this;
+	var strRigListJSON = objResponse.responseText;
+	var arrRigList = JSON.parse(strRigListJSON);
+	if (arrRigList && arrRigList.length > 0)
+	{
+		localStorage.setItem("rigList", strRigListJSON);
+		setupRigToggles();
+	}
+}
+
+
+function setupRigToggles()
+{
+	const arrOldRigList = Object.keys(gMapRigToggles);
+	const strRigListJSON = localStorage.getItem("rigList");
+	const arrRigList = strRigListJSON? JSON.parse(strRigListJSON) : kArrInitialRigs;
+	const eltRigTogglesDiv = document.getElementById("RigToggles");
+	
+	for (const i in arrRigList)
+	{
+		const strRigLetter = arrRigList[i];
+		if (strRigLetter in gMapRigToggles)
+			continue;
+		
+		// <label>
+		//   <input type="checkbox" name="A" onclick="rigSelect_onClick(this)" />
+		//   <span>A</span>
+		// </label>
+		const eltLabel = document.createElement("label");
+		const eltInput = document.createElement("input");
+		const eltSpan = document.createElement("span");
+		eltInput.setAttribute("type", "checkbox");
+		eltInput.setAttribute("name", strRigLetter);
+		eltInput.setAttribute("onclick", "rigSelect_onClick(this)");
+		eltSpan.appendChild(document.createTextNode(strRigLetter));
+		eltLabel.appendChild(eltInput);
+		eltLabel.appendChild(eltSpan);
+		eltRigTogglesDiv.appendChild(eltLabel);
+		gMapRigToggles[strRigLetter] = eltInput;
+	}
+	
+	// Remove any rigs that were in the old list but aren't in the new list
+	const arrRemoveRigs = arrOldRigList.filter(strRigLetter => !arrRigList.includes(strRigLetter));
+	for (const i in arrRemoveRigs)
+	{
+		const strRigLetter = arrRemoveRigs[i];
+		gMapRigToggles[strRigLetter].parentElement.remove();
+		delete gMapRigToggles[strRigLetter];
+	}
 }
 
 
@@ -58,9 +129,8 @@ function updateSearchResults()
 	while (eltResultsTable.firstChild)
 		eltResultsTable.removeChild(eltResultsTable.firstChild);
 	
-	// Restore scroll to top of window, and show or hide status message as needed
+	// Restore scroll to top of window
 	window.scrollTo({top: 0, left: 0, behavior: "smooth"});
-	showHideStatusMessage();
 	
 	const arrEnabledRigs = Object.keys(gMapRigContents);
 	const bNoRigsSelected = (arrEnabledRigs.length == 0);
@@ -94,7 +164,7 @@ function updateSearchResults()
 		else
 			strLastItemDescrLower = strItemDescrLower;
 		
-		if (strItemDescr && nMatchPos != -1)
+		if (strItemDescr && (nMatchPos != -1))
 			strItemDescr = strItemDescr.substr(0, nMatchPos) +
 				'<span class="MatchText">' + strItemDescr.substr(nMatchPos, nSearchTextLen) +
 				'</span>' + strItemDescr.substr(nMatchPos + nSearchTextLen);
@@ -103,18 +173,11 @@ function updateSearchResults()
 		//if (strItemDescr) strItemDescr = `(${nScore})  ${strItemDescr}`;
 		//if (strItemDescr) strItemDescr = `(${nMatchPos})  ${strItemDescr}`;
 		
-		strWhere = strWhere.replaceAll(kStrWhereSeparatorInternal, kStrWhereSeparatorUI);
+		strItemDescr = styleQuantity(strItemDescr);
+		strWhere = styleMainWhere(strWhere);
+		strWhere = strWhere.replaceAll(kStrInternalSeparator, kStrWhereSeparator);
 		addSearchResultRow(eltResultsTable, strItemDescr, strWhere);
 	}
-}
-
-
-function showHideStatusMessage()
-{
-	const arrEnabledRigs = Object.keys(gMapRigContents);
-	const bNoRigsSelected = (arrEnabledRigs.length == 0);
-	const eltStatusMessage = document.getElementById("StatusMessage");
-	eltStatusMessage.style.display = bNoRigsSelected? "block" : "none";
 }
 
 
@@ -152,7 +215,7 @@ function searchRigContents(strRigLetter, strSearchTextLower)
 
 function addRigNameToWhere(strWhere, strRigName)
 {
-	return strRigName + kStrWhereSeparatorInternal + strWhere;
+	return strRigName + kStrInternalSeparator + strWhere;
 }
 
 
@@ -168,11 +231,32 @@ function addSubrigNameToWhere(strWhere, mapSubrigDisplayNames)
 }
 
 
-function makeWhereString(strWhereInternal, mapSubrigDisplayNames)
+function styleMainWhere(strWhere)
 {
+	var nFirstTabIndex = strWhere.indexOf('\t');
+	if (nFirstTabIndex < 1)
+		return strWhere;
 	
-	strWhere = strRigLetter + kstrRigSuffix + kStrWhereSeparatorInternal + strWhere;
+	var nSecondTabIndex = strWhere.indexOf('\t', nFirstTabIndex + 1);
+	if (nSecondTabIndex == -1)
+		nSecondTabIndex = strWhere.length;
+	
+	return strWhere.substr(0, nFirstTabIndex + 1) + '<span class="MainWhere">' +
+		strWhere.substring(nFirstTabIndex + 1, nSecondTabIndex) + '</span>' +
+		strWhere.substr(nSecondTabIndex);
 }
+
+
+function styleQuantity(strItemDescr)
+{
+	var nLastTabIndex = strItemDescr.lastIndexOf('\t');
+	if (nLastTabIndex < 1)
+		return strItemDescr;
+	
+	return strItemDescr.substr(0, nLastTabIndex) + '<span class="Quantity">' +
+		kStrQuantitySeparator + strItemDescr.substr(nLastTabIndex + 1) + '</span>';
+}
+
 
 function getResultScore(strSearchTextLower, strItemDescrLower, nMatchPos)
 {
@@ -247,7 +331,7 @@ function addSearchResultRow(eltTable, strItemDescr, strWhere)
 
 function sendRequest(strRigLetter, strAdditionalParam, fcnOnResponse)
 {
-	const strUrl = kstrFetchRigUrl + encodeURIComponent(strRigLetter) + (strAdditionalParam || "");
+	const strUrl = kstrServerUrl + encodeURIComponent(strRigLetter) + (strAdditionalParam || "");
 	const objReq = new XMLHttpRequest();
 	objReq.addEventListener("load", fcnOnResponse);
 	objReq.open("GET", strUrl);
@@ -271,14 +355,14 @@ function loadRig(strRigLetter)
 		updateUIMode();
 		updateSearchResults();
 		
-		// Request this rig file's modTime, then recache if it's newer than our cache
-		sendRequest(strRigLetter, kstrGetModTimeUrlParam, recacheRigIfNeeded);
+		// Request this rig file's modTime, then refetch/recache if it's newer than our cache
+		sendRequest(strRigLetter, kstrGetModTimeUrlParam, response_refetchRigIfNeeded);
 	}
 	else if (!gMapPendingContentRequests[strRigLetter])
 	{
 		// Not in cache & there's not already a request pending for this rig
 		console.log(`Requesting ${strRigLetter} rig content from server...`);
-		const objReq = sendRequest(strRigLetter, null, storeReceivedRigContent);
+		const objReq = sendRequest(strRigLetter, null, response_storeReceivedRigContent);
 		gMapPendingContentRequests[strRigLetter] = objReq;
 		updateUIMode();
 	}
@@ -320,7 +404,7 @@ function unpendRigRequest(strRigLetter)
 }
 
 
-function recacheRigIfNeeded()
+function response_refetchRigIfNeeded()
 {
 	const objResponse = this;
 	var objModTimeInfo = JSON.parse(objResponse.responseText);
@@ -344,14 +428,13 @@ function recacheRigIfNeeded()
 }
 
 
-function storeReceivedRigContent()
+function response_storeReceivedRigContent()
 {
 	const objResponse = this;
 	const strRigLetter = objResponse.strRigLetter;
 	
 	// Remove pending request for this rig's contents
 	unpendRigRequest(strRigLetter);
-	updateUIMode();
 	
 	var objRigInfo = null;
 	if (objResponse)
@@ -365,22 +448,53 @@ function storeReceivedRigContent()
 			console.log(`--> Rig contents for ${strReceivedRigLetter} rig received`);
 			localStorage.setItem(strReceivedRigLetter + kCacheRigSuffix, strRigInfoJSON);
 			
-			// Only apply data if this rig is still needed (user may have unchecked
-			// its checkbox while the fetch results were being awaited)
-			if (strReceivedRigLetter in gMapRigContents)
+			// Only update in UI if this rig is still selected (user may have
+			// unchecked its checkbox while the fetch results were being awaited)
+			if (gMapRigToggles[strReceivedRigLetter]?.checked)
 			{
 				gMapRigContents[strReceivedRigLetter] = objRigInfo;
 				updateSearchResults();
 			}
 		}
 	}
+	
+	updateUIMode();
+}
+
+
+function clearCache()
+{
+	// Clear out "rigList" cache
+	localStorage.removeItem("rigList");
+	
+	// Clear out each rig's content cache
+	Object.keys(localStorage).
+		filter(strKey => strKey.endsWith(kCacheRigSuffix)).
+		forEach(strKey => localStorage.removeItem(strKey));
+	
+	// Unselect all rigs
+	const arrRigCheckboxes = Object.values(gMapRigToggles);
+	for (const i in arrRigCheckboxes)
+	{
+		const eltRigCheckbox = arrRigCheckboxes[i];
+		eltRigCheckbox.checked = false;
+		rigSelect_onClick(eltRigCheckbox);
+	}
+	
+	// Empty the search text
+	searchText_saveValueAndRefresh("");
+	
+	// Finally, reload the page to reset everything and update the set of rig toggles
+	window.location.reload();
 }
 
 
 function searchInput_onSubmit()
 {
+	// Hidden "clear cache" command
 	var eltSearchInput = document.getElementById("SearchInput");
-	searchText_saveValueAndRefresh(eltSearchInput.value, true);
+	if (eltSearchInput.value.trim().toLowerCase() === "clear cache")
+		clearCache();
 	
 	// Special case for iOS Safari: extra unfocus actions in order to make iOS keyboard dismiss
 	document.activeElement.blur();
@@ -392,43 +506,22 @@ function searchInput_onSubmit()
 }
 
 
-// NOTE: Only handling onKeyDown to catch Enter key (since it doesn't generate onKeyUp event)
-function searchInput_onKeyDown(eltSearchInput, evt)
-{
-	var ch = evt.which || evt.keyCode || evt.key.charCodeAt(0);
-
-	if (ch === 13)
-	{
-		searchInput_onSubmit(eltSearchInput, evt)
-		return false;
-	}
-	
-	return true;
-}
-
 
 function searchInput_onKeyUp(eltSearchInput, evt)
 {
-	searchText_saveValueAndRefresh(eltSearchInput.value, false);
+	searchText_saveValueAndRefresh(eltSearchInput.value);
 }
 
 
-function searchText_saveValueAndRefresh(strVal, bImmediateRefresh)
+function searchText_saveValueAndRefresh(strVal)
 {
 	strVal = strVal.trim();
-	if (!bImmediateRefresh && strVal == gStrSearchText)
+	if (strVal === gStrSearchText)
 		return;
-	
-	if (gnRefreshTimerID)
-		clearTimeout(gnRefreshTimerID);
 	
 	gStrSearchText = strVal;
 	localStorage.setItem("searchText", strVal);
-	
-	if (bImmediateRefresh)
-		updateSearchResults();
-	else
-		gnRefreshTimerID = setTimeout(updateSearchResults, knAutosearchDelayMillis);
+	updateSearchResults();
 }
 
 
@@ -446,7 +539,7 @@ function rigSelect_onClick(eltRigCheckbox)
 function updateUIMode()
 {
 	// Show or hide status message, depending on whether any rigs are selected or not
-	const bNoRigsSelected = (Object.keys(gMapRigContents).length === 0);
+	const bNoRigsSelected = !Object.values(gMapRigToggles).some(eltInput => eltInput.checked);
 	const eltStatusMessage = document.getElementById("StatusMessage");
 	eltStatusMessage.style.display = bNoRigsSelected? "block" : "none";
 	
@@ -458,7 +551,7 @@ function updateUIMode()
 
 function showHideModal(strModalID, bShow)
 {
-	document.getElementById("ModalOverlay").style.display = bShow? "flex" : "none";
+	document.getElementById("ModalOverlay").style.display = bShow? "block" : "none";
 	document.getElementById(strModalID).style.display = bShow? "block" : "none";
 }
 
