@@ -464,9 +464,6 @@ function response_storeReceivedRigContent()
 
 function clearCache()
 {
-	// Clear out "rigList" cache
-	localStorage.removeItem("rigList");
-	
 	// Clear out each rig's content cache
 	Object.keys(localStorage).
 		filter(strKey => strKey.endsWith(kCacheRigSuffix)).
@@ -484,7 +481,7 @@ function clearCache()
 	// Empty the search text
 	searchText_saveValueAndRefresh("");
 	
-	// Finally, reload the page to reset everything and update the set of rig toggles
+	// Finally, reload the page to reset everything and update the set of rig toggles if needed
 	window.location.reload();
 }
 
