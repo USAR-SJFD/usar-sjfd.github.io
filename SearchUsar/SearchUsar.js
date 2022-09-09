@@ -8,8 +8,8 @@ const kCacheRigSuffix = "_riginfo";
 const knMinimumSearchTextLen = 2;
 const kStrInternalSeparator = "\t";
 
-const kStrQuantitySeparator = " ⨉&nbsp;";  // 'n-ary times operator' (unicode 10761) + 'narrow no-break space'
-const kStrWhereSeparator = " ≫ ";           // 'much greater-than' (unicode 8811)
+const kStrQuantitySeparator = " ⨉&nbsp;";  // 'n-ary times operator' (unicode 10761)
+const kStrWhereSeparator = " ≫ ";          // 'much greater-than' (unicode 8811)
 //const kStrWhereSeparator = " ▻ ";
 //const kStrWhereSeparator = " ➤ ";
 //const kStrWhereSeparator = " ⨠ ";
@@ -28,24 +28,10 @@ var gStrLastJson = "";
 
 function init()
 {
-	const strEnabledRigsJSON = localStorage.getItem("enabledRigs");
-	const arrEnabledRigs = strEnabledRigsJSON? JSON.parse(strEnabledRigsJSON) : [];
-	const strSearchText = localStorage.getItem("searchText");
-	
 	setupRigToggles();
 	sendRequest("", kstrGetRigListUrlParam, response_updateRigList);
 	
-	for (const i in arrEnabledRigs)
-	{
-		const strRigLetter = arrEnabledRigs[i];
-		const eltRigCheckbox = document.querySelector(`#RigToggles input[name="${strRigLetter}"]`);
-		if (eltRigCheckbox)
-		{
-			eltRigCheckbox.checked = true;
-			loadRig(strRigLetter);
-		}
-	}
-	
+	const strSearchText = localStorage.getItem("searchText");
 	if (strSearchText)
 	{
 		const eltSearchInput = document.getElementById("SearchInput");
@@ -81,7 +67,9 @@ function response_updateRigList()
 function setupRigToggles()
 {
 	const strRigListJSON = localStorage.getItem("rigList");
+	const strEnabledRigsJSON = localStorage.getItem("enabledRigs");
 	const arrRigList = strRigListJSON? JSON.parse(strRigListJSON) : kArrInitialRigs;
+	const arrEnabledRigs = strEnabledRigsJSON? JSON.parse(strEnabledRigsJSON) : [];
 	const eltRigTogglesDiv = document.getElementById("RigToggles");
 	
 	// Remove all current rig toggles
@@ -91,6 +79,7 @@ function setupRigToggles()
     
 	// Create the specified rig toggles in alphabetical order
 	arrRigList.sort();
+	console.log(`Rigs: ${arrRigList}; enabled: ${arrEnabledRigs}`);
 	for (const i in arrRigList)
 	{
 		// Ensure only one toggle per rig (in case of erroneous backend data)
@@ -114,6 +103,11 @@ function setupRigToggles()
 		eltLabel.appendChild(eltSpan);
 		eltRigTogglesDiv.appendChild(eltLabel);
 		gMapRigToggles[strRigLetter] = eltInput;
+		if (arrEnabledRigs.includes(strRigLetter))
+		{
+			eltInput.checked = true;
+			loadRig(strRigLetter);
+		}
 	}
 }
 
@@ -528,7 +522,9 @@ function rigSelect_onClick(eltRigCheckbox)
 		loadRig(strRigLetter);
 	else
 		removeRig(strRigLetter);
-	localStorage.setItem("enabledRigs", JSON.stringify(Object.keys(gMapRigContents)));
+	
+	const arrEnabledRigs = Object.values(gMapRigToggles).filter(elt => elt.checked).map(elt => elt.name);
+	localStorage.setItem("enabledRigs", JSON.stringify(arrEnabledRigs));
 }
 
 
