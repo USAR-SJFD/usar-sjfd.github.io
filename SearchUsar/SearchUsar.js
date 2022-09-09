@@ -80,21 +80,29 @@ function response_updateRigList()
 
 function setupRigToggles()
 {
-	const arrOldRigList = Object.keys(gMapRigToggles);
 	const strRigListJSON = localStorage.getItem("rigList");
 	const arrRigList = strRigListJSON? JSON.parse(strRigListJSON) : kArrInitialRigs;
 	const eltRigTogglesDiv = document.getElementById("RigToggles");
 	
+	// Remove all current rig toggles
+	gMapRigToggles = {};
+	while (eltRigTogglesDiv.firstChild)
+		eltRigTogglesDiv.removeChild(eltRigTogglesDiv.lastChild);
+    
+	// Create the specified rig toggles in alphabetical order
+	arrRigList.sort();
 	for (const i in arrRigList)
 	{
+		// Ensure only one toggle per rig (in case of erroneous backend data)
 		const strRigLetter = arrRigList[i];
 		if (strRigLetter in gMapRigToggles)
 			continue;
 		
-		// <label>
-		//   <input type="checkbox" name="A" onclick="rigSelect_onClick(this)" />
-		//   <span>A</span>
-		// </label>
+		// Build this element structure for each toggle:
+		//   <label>
+		//      <input type="checkbox" name="A" onclick="rigSelect_onClick(this)" />
+		//      <span> A </span>
+		//	 </label>
 		const eltLabel = document.createElement("label");
 		const eltInput = document.createElement("input");
 		const eltSpan = document.createElement("span");
@@ -106,15 +114,6 @@ function setupRigToggles()
 		eltLabel.appendChild(eltSpan);
 		eltRigTogglesDiv.appendChild(eltLabel);
 		gMapRigToggles[strRigLetter] = eltInput;
-	}
-	
-	// Remove any rigs that were in the old list but aren't in the new list
-	const arrRemoveRigs = arrOldRigList.filter(strRigLetter => !arrRigList.includes(strRigLetter));
-	for (const i in arrRemoveRigs)
-	{
-		const strRigLetter = arrRemoveRigs[i];
-		gMapRigToggles[strRigLetter].parentElement.remove();
-		delete gMapRigToggles[strRigLetter];
 	}
 }
 
