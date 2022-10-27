@@ -2,8 +2,13 @@
 :root {
   --scaleBase: 110%;
   --sizeBase: 1em;
+  --hangingIndent: 1em;
   --separatorColor: #BBBBBB;
   --toggleCheckedColor: #0075FF;
+  /* 'N-ary Times Operator' (unicode 10761), followed by 'Six-Per-Em Space' (unicode 8198) */
+  /*--quantitySeparator: "⨉ ";*/
+  /* 'Multiplication Sign' (unicode 215), followed by 'Six-Per-Em Space' (unicode 8198) */
+  --quantitySeparator: "× ";
 }
 
 
@@ -91,46 +96,86 @@ html, body {
 }
 #ResultsTable tr td {
   vertical-align: top;
+  border-top: 1px solid var(--separatorColor);
 }
-#ResultsTable tr td:nth-child(1) {
+#ResultsTable tr:last-child td {
+  border-bottom: 1px solid var(--separatorColor);
+}
+#ResultsTable tr td.NoLine {
+  border-top: 0px;
+}
+/* Item description & quantity */
+#ResultsTable tr td:first-child {
   padding-top: 0.3em;
   padding-bottom: 0.3em;
   padding-right: 1em;
   padding-left: 1em;
-  text-indent:-1em;
+  text-indent: calc(0em - var(--hangingIndent));
   font-size: var(--sizeBase);
 }
-#ResultsTable tr td:nth-child(1):not(:empty) {
-  border-top: 1px solid var(--separatorColor);
-}
-#ResultsTable tr td:nth-child(2) {
-  border-top: 1px solid var(--separatorColor);
+/* Item location */
+#ResultsTable tr td:last-child {
   font-size: calc(var(--sizeBase) * 0.9);
   font-style: italic;
-  vertical-align: middle;
   padding-top: 0.4em;
   padding-bottom: 0.3em;
   padding-right: 0.2em;
   padding-left: 1.5em;
   text-indent:-1em;
 }
-#ResultsTable tr:last-child td {
-  border-bottom: 1px solid var(--separatorColor);
-}
 
 
-span.MatchText {
-  font-weight: bold;
+span.ItemDescr:empty {
+  /* When the item description is empty, pad to indent the quantity content */
+  padding-left: var(--hangingIndent);
 }
 
 span.Quantity {
+  white-space: nowrap;
   color: #707070;
-  font-size: calc(var(--sizeBase) * 0.9);
+  font-size: calc(var(--sizeBase) * 0.85);
+}
+span.Quantity[data-quantity="1"]:before {
+  /* Exclude explicit quantity suffix if quantity=1 */
+}
+span.Quantity:not([data-quantity="1"]):before {
+  content: " " var(--quantitySeparator) attr(data-quantity);
+}
+span.ItemDescr:empty + span.Quantity:before {
+  /* When item description is empty, include explicit quantity suffix even if quantity=1 */
+  content: " " var(--quantitySeparator) attr(data-quantity);
+}
+span.Quantity.FirstGrouped:after {
+  content: "   (" attr(data-total-quantity) " total)";
+  font-style: italic;
+}
+
+span.MatchText {
+  font-weight: bold;
+  color: black;
 }
 
 span.MainWhere {
   font-weight: bold;
   color: red;
+}
+
+span.ImageButton {
+  cursor: pointer;
+}
+span.ImageButton:hover {
+  text-decoration: underline dotted;
+}
+span.ImageButton:after {
+  background-image: url("PictureIcon.png");
+  background-repeat: no-repeat;
+  background-size: 1.05em 0.85em;
+  display: inline-block;
+  content: "";
+  width: 1.05em;
+  height: 0.85em;
+  margin-left: 0.35em;
+  margin-bottom: -0.025em;
 }
 
 
