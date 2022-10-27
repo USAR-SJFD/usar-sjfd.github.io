@@ -170,11 +170,11 @@ function updateSearchResults()
 	const bNoRigsSelected = (arrEnabledRigs.length == 0);
 	
 	if (bNoRigsSelected || gStrSearchText.length < knMinimumSearchTextLen)
-		return;
+		return rebuildSearchResultsTable([]);
 	
 	const strDistilledLowerSearchText = distillSearchText(gStrSearchText);
 	if (!strDistilledLowerSearchText)
-		return;
+		return rebuildSearchResultsTable([]);
 	
 	// Primary regex is case-[i]nsensitive, [m]ulti-line (to treat each line as separate match-target), 
 	// and [g]lobal (to find all matching lines, not just the first)
@@ -350,27 +350,36 @@ function distillSearchText(strSearchText)
 
 function buildSearchRegex(strDistilledLowerSearchText, strRegexFlags, bForWhereSection)
 {
-	// A space within a quoted section (represented in strDistilledLowerSearchText by the placeholder '_')
-	// matches one non-word char -- i.e. replace each '_' with pattern [^a-z0-9\n]
-	var strSearchPattern = strDistilledLowerSearchText.replaceAll("_", "[^a-z0-9\n]");
-	
-	// A hyphen matches zero or one non-word char -- i.e. replace each hyphen with pattern [^a-z0-9\n]?
-	strSearchPattern = strSearchPattern.replaceAll("-", "[^a-z0-9\n]?");
-	
+	var strSearchPattern = strDistilledLowerSearchText;
 	if (bForWhereSection)
 	{
 		// For searching the "where" section, special case for (box|shelf|section|unit) followed by
 		// a number or single letter after a space: treat that space like it's in a quoted section
-		// and require the number/letter to match as a *complete word*
-		const strWhereSearchPattern =
-			strSearchPattern.replace(/\b(box|shelf|section|unit) (\d+|[a-z])\b/g, "$1[^a-z0-9\n]$2\\b");
+		// and require the phrase to match only on word boundaries
+		var strWhereSearchPattern =
+			strSearchPattern.replace(/\b(box|shelf|section|unit) (\d+|[a-z])\b/g, "\\b$1_$2\\b");
+		
+		// Similar special case for the phrase "[letter] (rig|hauler|trailer)"
+		strWhereSearchPattern =
+			strWhereSearchPattern.replace(/(?<!\\)\b([a-z])[ \-](rig|hauler|trailer)\b/g, "\\b$1_$2\\b");
+		
+		// And finally, special case for single letter on its own: require it to match only on word boundaries
+		strWhereSearchPattern =
+			strWhereSearchPattern.replace(/(?<!\\)\b([a-z])\b(?!_)/g, "\\b$1\\b");
 		
 		// If special case doesn't occur in given search string, return null to indicate no special case needed
-		if (strWhereSearchPattern === strSearchPattern)
+		if (strWhereSearchPattern === strDistilledLowerSearchText)
 			return null;
 		else
 			strSearchPattern = strWhereSearchPattern;
 	}
+
+	// A hyphen matches zero or one non-word char -- i.e. replace each hyphen with pattern [^a-z0-9\n]?
+	strSearchPattern = strSearchPattern.replaceAll("-", "[^a-z0-9\n]?");
+	
+	// A space within a quoted section (represented in strDistilledLowerSearchText by the placeholder '_')
+	// matches one non-word char -- i.e. replace each '_' with pattern [^a-z0-9\n]
+	strSearchPattern = strSearchPattern.replaceAll("_", "[^a-z0-9\n]");
 	
 	// Special case to allow abbreviated search for "Shelf/Section"
 	strSearchPattern = strSearchPattern.replace(/\bshelf\b(?![^a-z0-9]+section\b)/g, "shelf(?:/section)?");
