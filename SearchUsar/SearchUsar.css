@@ -145,6 +145,10 @@ span.ItemDescr:empty + span.Quantity:before {
   /* When item description is empty, include explicit quantity suffix even if quantity=1 */
   content: " " var(--quantitySeparator) attr(data-quantity);
 }
+span.Quantity.FirstGrouped:before {
+  /* Also, on the first item of a group, include explicit quantity suffix even if quantity=1 */
+  content: " " var(--quantitySeparator) attr(data-quantity);
+}
 span.Quantity.FirstGrouped:after {
   content: "   (" attr(data-total-quantity) " total)";
   font-style: italic;
