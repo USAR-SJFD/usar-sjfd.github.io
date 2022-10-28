@@ -40,7 +40,7 @@ function init()
 	setupRigToggles();
 	sendRequest("", kstrGetRigListUrlParam, response_updateRigList);
 	
-	loadImagesMap();
+	// loadImagesMap();
 	
 	const strSearchText = localStorage.getItem("searchText");
 	if (strSearchText)
@@ -351,7 +351,8 @@ function distillSearchText(strSearchText)
 function buildSearchRegex(strDistilledLowerSearchText, strRegexFlags, bForWhereSection)
 {
 	var strSearchPattern = strDistilledLowerSearchText;
-	if (bForWhereSection)
+	console.log("HERE.");
+	if (false) //(bForWhereSection)
 	{
 		// For searching the "where" section, special case for (box|shelf|section|unit) followed by
 		// a number or single letter after a space: treat that space like it's in a quoted section
