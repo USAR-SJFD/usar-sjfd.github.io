@@ -40,7 +40,7 @@ function init()
 	setupRigToggles();
 	sendRequest("", kstrGetRigListUrlParam, response_updateRigList);
 	
-	// loadImagesMap();
+	loadImagesMap();
 	
 	const strSearchText = localStorage.getItem("searchText");
 	if (strSearchText)
@@ -351,8 +351,6 @@ function distillSearchText(strSearchText)
 function buildSearchRegex(strDistilledLowerSearchText, strRegexFlags, bForWhereSection)
 {
 	var strSearchPattern = strDistilledLowerSearchText;
-	console.log("NEW");
-	/*
 	if (bForWhereSection)
 	{
 		// For searching the "where" section, special case for (box|shelf|section|unit) followed by
@@ -362,12 +360,14 @@ function buildSearchRegex(strDistilledLowerSearchText, strRegexFlags, bForWhereS
 			strSearchPattern.replace(/\b(box|shelf|section|unit) (\d+|[a-z])\b/g, "\\b$1_$2\\b");
 		
 		// Similar special case for the phrase "[letter] (rig|hauler|trailer)"
+		// (note: Safari doesn't support negative lookbehind in regex, so have to capture char before)
 		strWhereSearchPattern =
-			strWhereSearchPattern.replace(/(?<!\\)\b([a-z])[ \-](rig|hauler|trailer)\b/g, "\\b$1_$2\\b");
+			strWhereSearchPattern.replace(/(^|[^\\])\b([a-z])[ \-](rig|hauler|trailer)\b/g, "$1\\b$2_$3\\b");
 		
 		// And finally, special case for single letter on its own: require it to match only on word boundaries
+		// (note: Safari doesn't support negative lookbehind in regex, so have to capture char before)
 		strWhereSearchPattern =
-			strWhereSearchPattern.replace(/(?<!\\)\b([a-z])\b(?!_)/g, "\\b$1\\b");
+			strWhereSearchPattern.replace(/(^|[^\\])\b([a-z])\b(?!_)/g, "$1\\b$2\\b");
 		
 		// If special case doesn't occur in given search string, return null to indicate no special case needed
 		if (strWhereSearchPattern === strDistilledLowerSearchText)
@@ -375,8 +375,7 @@ function buildSearchRegex(strDistilledLowerSearchText, strRegexFlags, bForWhereS
 		else
 			strSearchPattern = strWhereSearchPattern;
 	}
-	*/
-	
+
 	// A hyphen matches zero or one non-word char -- i.e. replace each hyphen with pattern [^a-z0-9\n]?
 	strSearchPattern = strSearchPattern.replaceAll("-", "[^a-z0-9\n]?");
 	
