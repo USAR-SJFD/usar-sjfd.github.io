@@ -350,14 +350,17 @@ function distillSearchText(strSearchText)
 
 function buildSearchRegex(strDistilledLowerSearchText, strRegexFlags, bForWhereSection)
 {
-	var strSearchPattern = strDistilledLowerSearchText;
+	// Special case to allow abbreviated search term for "Shelf/Section"
+	var strSearchPattern = strDistilledLowerSearchText.replace(/\bshelf\b(?![^a-z0-9]+section\b)/g, "shelf(?:/section)?");
+
 	if (bForWhereSection)
 	{
 		// For searching the "where" section, special case for (box|shelf|section|unit) followed by
 		// a number or single letter after a space: treat that space like it's in a quoted section
 		// and require the phrase to match only on word boundaries
+		// (note: for "section", also optionally detect special case added above)
 		var strWhereSearchPattern =
-			strSearchPattern.replace(/\b(box|shelf|section|unit) (\d+|[a-z])\b/g, "\\b$1_$2\\b");
+			strSearchPattern.replace(/\b(box|shelf|section(?:\)\?)?|unit)[ \-](\d+|[a-z])\b/g, "\\b$1_$2\\b");
 		
 		// Similar special case for the phrase "[letter] (rig|hauler|trailer)"
 		// (note: Safari doesn't support negative lookbehind in regex, so have to capture char before)
@@ -375,16 +378,13 @@ function buildSearchRegex(strDistilledLowerSearchText, strRegexFlags, bForWhereS
 		else
 			strSearchPattern = strWhereSearchPattern;
 	}
-
+	
 	// A hyphen matches zero or one non-word char -- i.e. replace each hyphen with pattern [^a-z0-9\n]?
 	strSearchPattern = strSearchPattern.replaceAll("-", "[^a-z0-9\n]?");
 	
 	// A space within a quoted section (represented in strDistilledLowerSearchText by the placeholder '_')
 	// matches one non-word char -- i.e. replace each '_' with pattern [^a-z0-9\n]
 	strSearchPattern = strSearchPattern.replaceAll("_", "[^a-z0-9\n]");
-	
-	// Special case to allow abbreviated search for "Shelf/Section"
-	strSearchPattern = strSearchPattern.replace(/\bshelf\b(?![^a-z0-9]+section\b)/g, "shelf(?:/section)?");
 	
 	//// Remove any single-letter words that aren't within a quoted section or next to a hyphen
 	//strSearchPattern = strSearchPattern.replace(/(?:^| )[a-z](?: |$)/g, "");
