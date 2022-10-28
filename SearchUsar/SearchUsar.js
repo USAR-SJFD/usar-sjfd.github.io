@@ -351,8 +351,9 @@ function distillSearchText(strSearchText)
 function buildSearchRegex(strDistilledLowerSearchText, strRegexFlags, bForWhereSection)
 {
 	var strSearchPattern = strDistilledLowerSearchText;
-	console.log("HERE.");
-	if (false) //(bForWhereSection)
+	console.log("NEW");
+	/*
+	if (bForWhereSection)
 	{
 		// For searching the "where" section, special case for (box|shelf|section|unit) followed by
 		// a number or single letter after a space: treat that space like it's in a quoted section
@@ -374,7 +375,8 @@ function buildSearchRegex(strDistilledLowerSearchText, strRegexFlags, bForWhereS
 		else
 			strSearchPattern = strWhereSearchPattern;
 	}
-
+	*/
+	
 	// A hyphen matches zero or one non-word char -- i.e. replace each hyphen with pattern [^a-z0-9\n]?
 	strSearchPattern = strSearchPattern.replaceAll("-", "[^a-z0-9\n]?");
 	
