@@ -1,14 +1,19 @@
 
 // Global consts
-const kArrInitialRigs = ["A", "B"];
-const kstrServerUrl = "https://script.google.com/macros/s/AKfycbzxmxu01VBtHNwufDAty4fgYLFLigvaTn7_Gcs9ctcxRiiOjsSvzhEQp2f9upEVg0OE/exec?rig=";
+const SERVER_BASE_URL = "https://script.google.com/macros/s/AKfycbyGvWusy1mwseydQ5SfgajdhavDIRaftGs5eIiLJigJPcVaASPebvN4tWOiMfgQ4olw/exec";
+const FETCH_PARAMS = {cache: 'no-store'};
+
 const kstrGetImagesMapParam = "&getImagesMap=1";
-const kstrGetRigListUrlParam = "&getRigList=1";
 const kstrGetModTimeUrlParam = "&getModTime=1";
-const kCacheRigSuffix = "_riginfo";
+
+const SERVERVERSION_STORAGE_KEY = "ServerVersion";
+const SELECTEDRIGS_STORAGE_KEY = "SelectedRigs";
+const SEARCHTEXT_STORAGE_KEY = "SearchText";
+const INVENTORYCACHE_STORAGE_KEY = "InventoryCache";
+const IMAGESMAP_STORAGE_KEY = "ImagesMap";
+
 const knMinimumSearchTextLen = 2;
 const kStrInternalSeparator = "\t";
-
 const kStrRecordSeparator = "␞";           // 'record separator' (unicode 9246)
 const kStrWhereSeparator = " ≫ ";          // 'much greater-than' (unicode 8811)
 //const kStrWhereSeparator = " ▻ ";
@@ -17,32 +22,42 @@ const kStrWhereSeparator = " ≫ ";          // 'much greater-than' (unicode 881
 //const kStrWhereSeparator = "&thinsp;➝ ";
 //const kStrWhereSeparator = "&thinsp;➛ ";
 
+const REM_PX = parseFloat(getComputedStyle(document.documentElement).fontSize);
+const SUPPRESS_EVENT = evt => evt.preventDefault();
+
 
 // Global vars
-var gMapImages = {};
-var gMapRigToggles = {};
-var gMapRigContents = {};
-var gMapPendingContentRequests = {};
-var gStrSearchText = "";
-var gStrLastJson = "";
+var gObjInventoryInfo = null;		// will contain {cacheModTime, rigButtonsMap, rigInventoriesMap}
+//var gnResponsesPending = 0;
+var gbPendingUpdateFetch = false;
+var gbPendingUpdateUI = false;
+var gArrRigButtonNames = [];
+var gArrCheckedButtonNames = [];
 
+var gMapImages = {};
+var gMapRigCheckboxes = {};    // will contain {<buttonName>: <eltCheckbox>, ...}
+var gStrSearchText = "";
+var gObjRigSelectMouseDown = {};
+var gEltLinksMenuShownFor = null;
 
 
 function init()
 {
-	if (localStorage.getItem("serverVersion") !== kstrServerUrl)
+	if (localStorage.getItem(SERVERVERSION_STORAGE_KEY) !== SERVER_BASE_URL)
 	{
-		localStorage.setItem("serverVersion", kstrServerUrl);
+		localStorage.setItem(SERVERVERSION_STORAGE_KEY, SERVER_BASE_URL);
 		console.log("Clearing local cache because server version has been updated");
 		clearCache();
 	}
 	
-	setupRigToggles();
-	sendRequest("", kstrGetRigListUrlParam, response_updateRigList);
+	const strInventoryInfo = localStorage.getItem(INVENTORYCACHE_STORAGE_KEY);
+	gObjInventoryInfo = strInventoryInfo && parseCombinedInventoryText(strInventoryInfo);
+	updateRigToggles();
+  fetchUpdateIfNeeded();
 	
-	loadImagesMap();
+	//loadImagesMap();  //################
 	
-	const strSearchText = localStorage.getItem("searchText");
+	const strSearchText = localStorage.getItem(SEARCHTEXT_STORAGE_KEY);
 	if (strSearchText)
 	{
 		const eltSearchInput = document.getElementById("SearchInput");
@@ -50,22 +65,146 @@ function init()
 		searchText_saveValueAndRefresh(strSearchText);
 	}
 	
-	// Header is floating fixed, so pad the rest of the content (Calls) down to just below header
+	// Header is floating fixed, so pad the rest of the content (search results) down to just below header
 	var nPageHeaderHeight = document.getElementById("PageHeader").offsetHeight;
 	document.getElementById("HeadingSpacer").style.height = nPageHeaderHeight + "px";
 	document.getElementById("ModalOverlay").style.top = nPageHeaderHeight + "px";
 	var nOverlayHeight = document.getElementById("ModalOverlay").offsetHeight - nPageHeaderHeight;
 	document.getElementById("AwaitResultsModal").style.height = nOverlayHeight + "px";
 	
+	// To handle click-and-drag/touch-and-drag (used for rigSelect buttons)
+	window.addEventListener("mousemove", rigSelect_onMouseOver, {capture: true});
+	window.addEventListener("touchmove", rigSelect_onMouseOver, {capture: true});
+	window.addEventListener("mouseup", rigSelect_onMouseUp, {capture: true});
+	window.addEventListener("touchend", rigSelect_onMouseUp, {capture: true});
+	
+	// To handle "clicking out of" links menu
+	window.addEventListener("mousedown", maybeDismissLinksMenu);
+	window.addEventListener("touchstart", maybeDismissLinksMenu);
+
 	updateUIMode();
 	updateSearchResults();
+}
+
+
+function fetchUpdateIfNeeded()
+{
+	if (gbPendingUpdateFetch)
+		return;
+	
+	gbPendingUpdateFetch = true;
+	
+	const strCacheModTime = gObjInventoryInfo?.cacheModTime;
+	if (strCacheModTime)
+	{
+		// We have local cache; silently check for update, only showing update modal if isUpdateNeeded responds true
+		console.log("Requesting inventory content from server via 'getIfNeeded'...");
+		serverRequest("isUpdateNeeded", strCacheModTime);
+		serverRequest("getIfNeeded", strCacheModTime);
+	}
+	else
+	{
+		// We don't have local cache; show update modal and fetch update
+		console.log("Requesting inventory content from server via 'get'...");
+		serverRequest("get");
+		gbPendingUpdateUI = true;
+		updateUIMode();
+	}
+}
+
+
+function serverRequest(strRequestAction, strCacheModTime)
+{
+	//gnResponsesPending++;
+	const strUrl = strCacheModTime?
+		`${SERVER_BASE_URL}?action=${strRequestAction}&clientCacheModTime=${strCacheModTime}` :
+		`${SERVER_BASE_URL}?action=${strRequestAction}`;
+	fetch(strUrl, FETCH_PARAMS)
+		.then(objResponse => handleServerResponse(strRequestAction, objResponse))
+		.catch(objFetchErr => handleServerResponse(strRequestAction, null, objFetchErr));
+}
+
+
+async function handleServerResponse(strRequestAction, objResponse, objFetchErr)
+{
+	//gnResponsesPending = Math.max(0, gnResponsesPending - 1);
+	if (gbPendingUpdateFetch && (strRequestAction === "get" || strRequestAction === "getIfNeeded"))
+	{
+		gbPendingUpdateFetch = false;
+		gbPendingUpdateUI = false;
+	}
+	
+	if (objFetchErr)
+		showServerError(objFetchErr.message);
+	else if (!objResponse.ok)
+		showServerError(`${objResponse.statusText} (code ${objResponse.status})`);
+	else
+	{
+		const strInventoryInfo = await objResponse.text();
+		const objInventoryInfo = parseCombinedInventoryText(strInventoryInfo);
+		if (objInventoryInfo === null)
+			showServerError(`Unable to parse server response ("${strInventoryInfo}")`);
+		else if (objInventoryInfo.error)
+			showServerError(objInventoryInfo.error);
+		else
+		{
+			switch (strRequestAction)
+			{
+				case "isUpdateNeeded":
+					if (objInventoryInfo === false)
+						console.log("--> Server response: no update needed");
+					else if (gbPendingUpdateFetch)
+					{
+						console.log("--> Server response: update needed; awaiting 'getIfNeeded' response");
+						gbPendingUpdateUI = true;
+					}
+					else
+					{
+						console.log("--> Server response: update needed; already received 'getIfNeeded' response");
+						// We received the 'getIfNeeded' response before the 'isUpdateNeeded' response, so we never
+						// put the UI in update mode; do it now on a brief timer just so user knows update happened
+						gbPendingUpdateUI = true;
+						setTimeout(() => {
+								if (!gbPendingUpdateFetch)
+								{
+									gbPendingUpdateUI = false;
+									updateUIMode();
+								}
+							}, 1000);
+					}
+					break;
+				
+				case "getIfNeeded":
+				case "get":
+					if (objInventoryInfo.rigInventoriesMap)
+					{
+						console.log(`--> Received updated inventories from server (modTime ${objInventoryInfo.cacheModTime})`);
+						localStorage.setItem(INVENTORYCACHE_STORAGE_KEY, strInventoryInfo);
+						gObjInventoryInfo = objInventoryInfo;
+						updateRigToggles();
+						updateSearchResults();
+					}
+					gbPendingUpdateUI = false;
+					break;
+			}
+		}
+	}
+	
+	updateUIMode();
+}
+
+
+function showServerError(strErrorMsg)
+{
+	//#################### TODO
+	console.log(`SERVER ERR:  ${strErrorMsg}`);
 }
 
 
 function loadImagesMap()
 {
 	console.log("Loading images-map from local cache; asynchronously checking server for updates...");
-	const strImagesMapJSON = localStorage.getItem("imagesMap");
+	const strImagesMapJSON = localStorage.getItem(IMAGESMAP_STORAGE_KEY);
 	gMapImages = strImagesMapJSON? JSON.parse(strImagesMapJSON) : {};
 	sendRequest("", kstrGetImagesMapParam + kstrGetModTimeUrlParam, response_refetchImagesMapIfNeeded);
 }
@@ -79,7 +218,7 @@ function response_refetchImagesMapIfNeeded()
 	{
 		console.log("--> Newer images-map on server; clearing local cache & refetching");
 		// Remove from cache
-		localStorage.removeItem("imagesMap");
+		localStorage.removeItem(IMAGESMAP_STORAGE_KEY);
 		// And re-fetch
 		sendRequest("", kstrGetImagesMapParam, response_updateImagesMap);
 	}
@@ -97,131 +236,156 @@ function response_updateImagesMap()
 	{
 		console.log("--> Images-map received");
 		gMapImages = mapImages;
-		localStorage.setItem("imagesMap", strImagesMapJSON);
+		localStorage.setItem(IMAGESMAP_STORAGE_KEY, strImagesMapJSON);
 		updateSearchResults();
 	}
 }
 
 
-function response_updateRigList()
+function arrayEquals(arr1, arr2)
 {
-	const objResponse = this;
-	var strRigListJSON = objResponse.responseText;
-	var arrRigList = JSON.parse(strRigListJSON);
-	if (arrRigList && arrRigList.length > 0)
-	{
-		localStorage.setItem("rigList", strRigListJSON);
-		setupRigToggles();
-	}
+	return arr1 && arr2 && arr1.length === arr2.length && arr1.every((val, i) => (val === arr2[i]));
 }
 
 
-function setupRigToggles()
+function updateRigToggles()
 {
-	const strRigListJSON = localStorage.getItem("rigList");
-	const strEnabledRigsJSON = localStorage.getItem("enabledRigs");
-	const arrRigList = strRigListJSON? JSON.parse(strRigListJSON) : kArrInitialRigs;
-	const arrEnabledRigs = strEnabledRigsJSON? JSON.parse(strEnabledRigsJSON) : [];
+	// Get the rig button names in alphabetical order
+	const mapRigButtons = gObjInventoryInfo?.rigButtonsMap;
+	const arrRigButtonNames = mapRigButtons? Object.keys(mapRigButtons) : [];
+	arrRigButtonNames.sort();
+	
+	// If don't yet have buttons map, or the list of buttons hasn't changed, then nothing to update
+	if (arrRigButtonNames.length === 0 || arrayEquals(arrRigButtonNames, gArrRigButtonNames))
+		return;
+	
+	gArrRigButtonNames = arrRigButtonNames;
+	
+	const strCheckedButtonNamesJSON = localStorage.getItem(SELECTEDRIGS_STORAGE_KEY);
+	gArrCheckedButtonNames = strCheckedButtonNamesJSON? JSON.parse(strCheckedButtonNamesJSON) : [];
 	const eltRigTogglesDiv = document.getElementById("RigToggles");
 	
 	// Remove all current rig toggles
-	gMapRigToggles = {};
+	gMapRigCheckboxes = {};
 	while (eltRigTogglesDiv.firstChild)
 		eltRigTogglesDiv.removeChild(eltRigTogglesDiv.lastChild);
     
-	// Create the specified rig toggles in alphabetical order
-	arrRigList.sort();
-	console.log(`Rigs: ${arrRigList}; enabled: ${arrEnabledRigs}`);
-	for (const i in arrRigList)
+	// Create the specified rig toggles
+	console.log(`Rig buttons: [${gArrRigButtonNames}]; checked: [${gArrCheckedButtonNames}]`);
+	for (const strButtonName of gArrRigButtonNames)
 	{
 		// Ensure only one toggle per rig (in case of erroneous backend data)
-		const strRigLetter = arrRigList[i];
-		if (strRigLetter in gMapRigToggles)
+		if (strButtonName in gMapRigCheckboxes)
 			continue;
 		
 		// Build this element structure for each toggle:
 		//   <label>
 		//      <input type="checkbox" name="A" onclick="rigSelect_onClick(this)" />
-		//      <span> A </span>
+		//      <span>A</span>
 		//	 </label>
-		const eltLabel = document.createElement("label");
-		const eltInput = document.createElement("input");
-		const eltSpan = document.createElement("span");
+		const eltLabel = document.createElement("LABEL");
+		const eltInput = document.createElement("INPUT");
+		const eltSpan = document.createElement("SPAN");
+		
 		eltInput.setAttribute("type", "checkbox");
-		eltInput.setAttribute("name", strRigLetter);
-		eltInput.setAttribute("onclick", "rigSelect_onClick(this)");
-		eltSpan.appendChild(document.createTextNode(strRigLetter));
+		eltInput.setAttribute("name", strButtonName);
+		
+		// To initiate click-and-drag/touch-and-drag started on a rigSelect button
+		eltLabel.onmousedown = rigSelect_onMouseDown;
+		eltLabel.ontouchstart = rigSelect_onMouseDown;
+		
+		// Suppress the standard click/mousedown/touchstart behavior
+		eltLabel.onclick = eltInput.onclick = eltInput.onmousedown = eltInput.ontouchstart = SUPPRESS_EVENT;
+		
+		eltSpan.appendChild(document.createTextNode(strButtonName));
 		eltLabel.appendChild(eltInput);
 		eltLabel.appendChild(eltSpan);
 		eltRigTogglesDiv.appendChild(eltLabel);
-		gMapRigToggles[strRigLetter] = eltInput;
-		if (arrEnabledRigs.includes(strRigLetter))
-		{
+		gMapRigCheckboxes[strButtonName] = eltInput;
+		if (gArrCheckedButtonNames.includes(strButtonName))
 			eltInput.checked = true;
-			loadRig(strRigLetter);
-		}
 	}
 }
 
 
 function updateSearchResults()
 {
-	const arrEnabledRigs = Object.keys(gMapRigContents);
-	const bNoRigsSelected = (arrEnabledRigs.length == 0);
-	
-	if (bNoRigsSelected || gStrSearchText.length < knMinimumSearchTextLen)
-		return rebuildSearchResultsTable([]);
-	
-	const strDistilledLowerSearchText = distillSearchText(gStrSearchText);
-	if (!strDistilledLowerSearchText)
-		return rebuildSearchResultsTable([]);
-	
-	// Primary regex is case-[i]nsensitive, [m]ulti-line (to treat each line as separate match-target), 
-	// and [g]lobal (to find all matching lines, not just the first)
-	const searchRegex = buildSearchRegex(strDistilledLowerSearchText, "img");
-	const searchWhereRegex = buildSearchRegex(strDistilledLowerSearchText, "i", true);
-	
-	console.log(searchRegex);
-	console.log(searchWhereRegex);
-	
-	// Combine search results for all selected rigs -- in alphabetical rig order,
-	// so same-score results will be in that order after final sort
-	arrEnabledRigs.sort();
+	const arrCheckedButtonNames = Object.values(gMapRigCheckboxes).filter(elt => elt.checked).map(elt => elt.name);
 	var arrResults = [];
-	var bMatchesInItem = false;
-	var bMatchesInWhere = false;
-	for (const i in arrEnabledRigs)
+
+	if (arrCheckedButtonNames.length > 0 && gStrSearchText.length >= knMinimumSearchTextLen)
 	{
-		const strRigLetter = arrEnabledRigs[i];
-		//arrResults = arrResults.concat(searchRigContents(strRigLetter, strSearchTextLower));
-		const arrRigResults = searchRigContents(strRigLetter, searchRegex, searchWhereRegex);
-		arrResults = arrResults.concat(arrRigResults);
-		bMatchesInItem ||= arrRigResults.bMatchesInItem;
-		bMatchesInWhere ||= arrRigResults.bMatchesInWhere;
+		const strDistilledLowerSearchText = distillSearchText(gStrSearchText);
+		if (strDistilledLowerSearchText)
+		{
+			// Primary regex is case-[i]nsensitive, [m]ulti-line (to treat each line as separate match-target), 
+			// and [g]lobal (to find all matching lines, not just the first)
+			const searchRegex = buildSearchRegex(strDistilledLowerSearchText, "img");
+			const searchWhereRegex = buildSearchRegex(strDistilledLowerSearchText, "i", true);
+			
+			console.log(searchRegex);
+			console.log(searchWhereRegex);
+			
+			// Combine search results for all selected rigs -- in alphabetical rig order,
+			// so same-score results will be in that order after final sort
+			arrCheckedButtonNames.sort();
+			var bMatchesInItem = false;
+			var bMatchesInWhere = false;
+			for (const strButtonName of arrCheckedButtonNames)
+			{
+				//arrResults = arrResults.concat(searchRigContents(strButtonName, strSearchTextLower));
+				const arrRigResults = searchRigContents(strButtonName, searchRegex, searchWhereRegex);
+				arrResults = arrResults.concat(arrRigResults);
+				bMatchesInItem ||= arrRigResults.bMatchesInItem;
+				bMatchesInWhere ||= arrRigResults.bMatchesInWhere;
+			}
+			//console.log(`IN ITEMS?  ${bMatchesInItem}   IN WHERES?  ${bMatchesInWhere}`);
+			
+			// Sort results from highest to lowest score (note that sort is stable, so items with
+			// equal scores items will be listed in same order as they appear in the inventory)
+			arrResults.sort((match1, match2) => (match2.nScore - match1.nScore));
+			//arrResults.sort(matchSortOrder);
+			
+			// Split results in those that matched only in the "where" section, and all others
+			var arrResultsInWhere = arrResults.filter(match => (match.bMatchInWhere && !match.bMatchInItem));
+			var arrResultsOther = arrResults.filter(match => !(match.bMatchInWhere && !match.bMatchInItem));
+			
+			const nNumResultsInWhere = arrResultsInWhere.length;
+			const nNumResultsOther = arrResultsOther.length;
+			
+			var nScoreInWhere = 0; for (const match of arrResultsInWhere) nScoreInWhere += match.nScore;
+			var nScoreOther = 0; for (const match of arrResultsOther) nScoreOther += match.nScore;
+			
+			const nAvgScoreInWhere = nNumResultsInWhere && (nScoreInWhere / nNumResultsInWhere);
+			const nAvgScoreOther = nNumResultsOther && (nScoreOther / nNumResultsOther);
+			
+			//console.log(`NUM IN WHERE: ${nNumResultsInWhere}   AVG SCORE: ${nAvgScoreInWhere}`)
+			//console.log(`   NUM OTHER: ${nNumResultsOther}   AVG SCORE: ${nAvgScoreOther}`)
+		}
 	}
-	console.log(`IN ITEMS?  ${bMatchesInItem}   IN WHERES?  ${bMatchesInWhere}`);
-	
-	// Sort results from highest to lowest score
-	arrResults.sort((match1, match2) => (match2.nScore - match1.nScore));
-	
-	// Split results in those that matched only in the "where" section, and all others
-	var arrResultsInWhere = arrResults.filter(match => (match.bMatchInWhere && !match.bMatchInItem));
-	var arrResultsOther = arrResults.filter(match => !(match.bMatchInWhere && !match.bMatchInItem));
-	
-	const nNumResultsInWhere = arrResultsInWhere.length;
-	const nNumResultsOther = arrResultsOther.length;
-	
-	var nScoreInWhere = 0; for (const match of arrResultsInWhere) nScoreInWhere += match.nScore;
-	var nScoreOther = 0; for (const match of arrResultsOther) nScoreOther += match.nScore;
-	
-	const nAvgScoreInWhere = nNumResultsInWhere && (nScoreInWhere / nNumResultsInWhere);
-	const nAvgScoreOther = nNumResultsOther && (nScoreOther / nNumResultsOther);
-	
-	console.log(`NUM IN WHERE: ${nNumResultsInWhere}   AVG SCORE: ${nAvgScoreInWhere}`)
-	console.log(`   NUM OTHER: ${nNumResultsOther}   AVG SCORE: ${nAvgScoreOther}`)
 	
 	rebuildSearchResultsTable(arrResults);
 }
+
+
+//function matchSortOrder(match1, match2)
+//{
+//	const nRelScore = match2.nScore - match1.nScore;
+//	if (nRelScore !== 0)
+//		return nRelScore;
+//
+//	if (match2.strItemDescr < match1.strItemDescr)
+//		return 1;
+//	if (match2.strItemDescr > match1.strItemDescr)
+//		return -1;
+//
+//	if (match2.strWhere < match1.strWhere)
+//		return 1;
+//	if (match2.strWhere > match1.strWhere)
+//		return -1;
+//
+//	return 0;
+//}
 
 
 function rebuildSearchResultsTable(arrResults)
@@ -243,7 +407,7 @@ function rebuildSearchResultsTable(arrResults)
 	
 	for (let i = 0; i < arrResults.length; i++)
 	{
-		const {nScore, nQuantity, strItemDescr, strWhere} = arrResults[i];
+		const {nScore, nQuantity, strItemDescr, strWhere, strItemInfo} = arrResults[i];
 		const strItemDescrLower = strItemDescr.toLowerCase();
 		const strWhereLower = strWhere.toLowerCase();
 		const bSameAsPrevItem = (strItemDescrLower === strPrevItemDescrLower);
@@ -272,32 +436,39 @@ function rebuildSearchResultsTable(arrResults)
 			nTotalGroupedItemQuantity = nQuantity;
 		}
 		
-		// FOR TESTING
-		//if (strItemDescr) strItemDescr = `(${nScore})  ${strItemDescr}`;
 		
-		const eltItemDescr = document.createElement("span");
+		const eltItemDescr = document.createElement("SPAN");
 		eltItemDescr.className = "ItemDescr";
 		if (!bSameAsPrevItem)
+		{
 			eltItemDescr.innerHTML = strItemDescr;
+			//eltItemDescr.innerHTML = strItemDescr? `(${nScore})  ${strItemDescr}` : "";  // ***FOR DEBUGGING***
+			
+			if (strItemInfo)
+			{
+				eltItemDescr.setAttribute("data-links", strItemInfo);
+				eltItemDescr.onclick = itemDescr_onClick;
+			}
+		}
 		
-		const eltItemQuantity = document.createElement("span");
+		const eltItemQuantity = document.createElement("SPAN");
 		eltItemQuantity.className = "Quantity";
 		eltItemQuantity.setAttribute("data-quantity", nQuantity);
 		
-		const eltTD1 = document.createElement("td");
+		const eltTD1 = document.createElement("TD");
 		if (bSameAsPrevItem)
 			eltTD1.className = "NoLine";
 		eltTD1.appendChild(eltItemDescr);
 		eltTD1.appendChild(eltItemQuantity);
 		
-		const eltTD2 = document.createElement("td");
+		const eltTD2 = document.createElement("TD");
 		eltTD2.className = "ItemWhere";
 		if (bSameAsPrevWhere)
 			eltTD2.className = "NoLine";
 		else
 			eltTD2.innerHTML = styleWhere(strWhere);
 		
-		const eltTR = document.createElement("tr");
+		const eltTR = document.createElement("TR");
 		eltTR.className = "SearchResultRow";
 		eltTR.appendChild(eltTD1);
 		eltTR.appendChild(eltTD2);
@@ -400,151 +571,170 @@ function buildSearchRegex(strDistilledLowerSearchText, strRegexFlags, bForWhereS
 }
 
 
-function searchRigContents(strRigLetter, searchRegex, searchWhereRegex)
+function searchRigContents(strButtonName, searchRegex, searchWhereRegex)
 {
-	const objRigInfo = gMapRigContents[strRigLetter];
-	const strRigContents = objRigInfo?.contents;
-	if (!strRigContents?.length)
-		return [];	// should only be possible if backend error
+	const arrRigs = gObjInventoryInfo?.rigButtonsMap?.[strButtonName];
+	if (!arrRigs)
+		return [];
 	
-	//const displayName = objRigInfo.displayName;
-	//const bIsSubRig = (typeof displayName !== "string");
+	let arrResults = [];
+	let bMatchesInItem = false;
+	let bMatchesInWhere = false;
 	
-	var bMatchesInItem = false;
-	var bMatchesInWhere = false;
-	var arrResults = [];
-	
-	searchRegex.lastIndex = 0;
-	var nLineEnd = -1;
-	var match;
-	while ((match = searchRegex.exec(strRigContents)) !== null)
+	for (const objRigInfo of arrRigs)
 	{
-		var strOverallMatch = match[0];
-		var nMatchStart = match.index;  // note this is always start of line, since regex begins with '^'
-		var nMatchEnd = nMatchStart + strOverallMatch.length;
+		const strRigContents = gObjInventoryInfo?.rigInventoriesMap?.[objRigInfo.rigName];
+		if (!strRigContents?.length)
+			continue;
 		
-		nLineStart = nMatchStart;
-		var nLineEnd = strRigContents.indexOf("\n", nMatchEnd);
-		if (nLineEnd === -1)
-			nLineEnd = strRigContents.length;
-		
-		// Extract the line being matched
-		const strLine = strRigContents.substring(nLineStart, nLineEnd);
-		// Then make nMatchStart point to first match part relative to line -- i.e. skip
-		// over first group, which contains all the chars before the first match part
-		nMatchStart = match[1].length;
-		// And also adjust nMatchEnd relative to line
-		nMatchEnd -= nLineStart;
-		
-		const nRigAndQuantityEnd = strLine.indexOf(kStrRecordSeparator);
-		const nItemStart = nRigAndQuantityEnd + kStrRecordSeparator.length;
-		const nItemEnd = strLine.indexOf(kStrRecordSeparator, nItemStart);
-		const nWhereStart = nItemEnd + kStrRecordSeparator.length;
-		const bMatchInItem = nMatchStart < nWhereStart;
-		const bMatchInWhere = nMatchEnd >= nWhereStart;
-		bMatchesInItem ||= bMatchInItem;
-		bMatchesInWhere ||= bMatchInWhere;
-		
-		//const strRigAndQuantity = strLine.substr(0, nRigAndQuantityEnd);
-		//const nRigEnd = strRigAndQuantity.indexOf(kStrInternalSeparator);
-		//const strSubRigAbbrev = (nRigEnd !== -1)? strRigAndQuantity.substr(0, nRigEnd) : strRigAndQuantity;
-		//const strQuantity = (nRigEnd !== -1)? strRigAndQuantity.substr(nRigEnd + 1) : null;
-		const strQuantity = strLine.substr(0, nRigAndQuantityEnd);
-		
-		if (bMatchInWhere && searchWhereRegex)
+		searchRegex.lastIndex = 0;
+		let nLineEnd = -1;
+		let match;
+		while ((match = searchRegex.exec(strRigContents)) !== null)
 		{
-			const whereRegexMatch = searchWhereRegex.exec(strLine);
-			if (whereRegexMatch)
+			let strOverallMatch = match[0];
+			let nMatchStart = match.index;
+			let nMatchEnd = nMatchStart + strOverallMatch.length;
+			
+			nLineStart = nMatchStart;  // nMatchStart is always start of line, since regex begins with '^'
+			let nLineEnd = strRigContents.indexOf("\n", nMatchEnd);
+			if (nLineEnd === -1)
+				nLineEnd = strRigContents.length;
+			
+			// Extract the line being matched
+			const strLine = strRigContents.substring(nLineStart, nLineEnd);
+			// Then make nMatchStart point to first match part relative to line -- i.e. skip
+			// over first group, which contains all the chars before the first match part
+			nMatchStart = match[1].length;
+			// And also adjust nMatchEnd relative to line
+			nMatchEnd -= nLineStart;
+			
+			const nItemInfoEnd = strLine.indexOf(kStrRecordSeparator);
+			const nItemStart = nItemInfoEnd + kStrRecordSeparator.length;
+			const nItemEnd = strLine.indexOf(kStrRecordSeparator, nItemStart);
+			const nWhereStart = nItemEnd + kStrRecordSeparator.length;
+			const bMatchInItem = nMatchStart < nWhereStart;
+			const bMatchInWhere = nMatchEnd >= nWhereStart;
+			bMatchesInItem ||= bMatchInItem;
+			bMatchesInWhere ||= bMatchInWhere;
+			
+			// Extract the quantity and item info, if any present
+			let strQuantity = null;
+			let strItemInfo = strLine.substr(0, nItemInfoEnd);
+			if (strItemInfo)
 			{
-				match = whereRegexMatch;
-				nMatchStart = match[1].length;
+				// Check for JSON after quantity string
+				let nJsonStart = strItemInfo.indexOf("[");
+				if (nJsonStart === -1)
+					nJsonStart = strItemInfo.indexOf("{");
+				if (nJsonStart !== -1)
+				{
+					strQuantity = strItemInfo.substring(0, nJsonStart);
+					strItemInfo = strItemInfo.substring(nJsonStart);
+				}
+				else
+				{
+					strQuantity = strItemInfo;
+					strItemInfo = null;
+				}
 			}
-			else if (!bMatchInItem)
-				// If the match is only in where, and searchWhereRegex doesn't succeed
-				// then treat this item as a non-match
-				continue;
-		}
-		
-		//const SHOWITEM = "Screamer Suit";
-		//if (strItemDescr === SHOWITEM)
-		//{
-		//	console.log("___ ITEM '" + SHOWITEM + "': ___");
-		//	console.log(">>> bMatchInItem = " + bMatchInItem);
-		//	console.log(">>> bMatchInWhere = " + bMatchInWhere);
-		//	console.log(">>> nMatchStart = " + nMatchStart);
-		//	console.log(">>> nMatchEnd = " + nMatchEnd);
-		//	console.log(">>> strLine = '" + strLine + "'");
-		//	console.log(">>> item = '" + strLine.substring(nItemStart, nItemEnd) + "'");
-		//	console.log(">>> where = '" + strLine.substr(nWhereStart) + "'");
-		//	console.log(">>> strOverallMatch = '" + strOverallMatch + "'");
-		//	console.log(match);
-		//}
-		
-		var nPrevPartMatchEnd = nItemStart;
-		var nPrevSkippedCharsEnd = nMatchStart;
-		var nScore = 0;
-		var nNumPartScores = 0;
-		var strLineHilited = "";
-		
-		// Match parts start at group 2, and there's a pair of groups captured for each part:
-		// (1) the matching part, and (2) the subsequent skipped chars up to the next matching part
-		const nNumGroups = match.length;
-		for (var i = 2; i < nNumGroups; i += 2)
-		{
-			const strPartMatch = match[i];
-			const nPartMatchStart = nPrevSkippedCharsEnd;
-			const nPartMatchEnd = nPartMatchStart + strPartMatch.length;
-			const bPartMatchInItem = (nPartMatchStart < nWhereStart);
-			const bPartMatchInWhere = (nPartMatchEnd > nWhereStart);
 			
-			//##################
-			if (bPartMatchInWhere)
+			if (bMatchInWhere && searchWhereRegex)
 			{
-				const nPrevWherePartMatchEnd = (i == 2)? nWhereStart : nPrevPartMatchEnd;
-				nScore += getWherePartMatchScore(strPartMatch, strLine, nPartMatchStart, nPrevWherePartMatchEnd);
+				const whereRegexMatch = searchWhereRegex.exec(strLine);
+				if (whereRegexMatch)
+				{
+					match = whereRegexMatch;
+					nMatchStart = match[1].length;
+				}
+				else if (!bMatchInItem)
+					// If the match is only in where, and searchWhereRegex doesn't succeed
+					// then treat this item as a non-match
+					continue;
 			}
-			else
-				nScore += getPartMatchScore(strPartMatch, strLine, nPartMatchStart, nPrevPartMatchEnd);
-			nNumPartScores++;
 			
-			if (bPartMatchInItem && bPartMatchInWhere)
-				// This match part spans across the item/where record-separator, so
-				// need to close and re-open the MatchText span around that separator
-				strLineHilited += strLine.substring(nPrevPartMatchEnd, nPartMatchStart)
-								+ '<span class="MatchText">'
-								+ strLine.substring(nPartMatchStart, nItemEnd)
-								+ '</span>'
-								+ kStrRecordSeparator
-								+ '<span class="MatchText">'
-								+ strLine.substring(nWhereStart, nPartMatchEnd)
-								+ '</span>';
-			else
-				strLineHilited += strLine.substring(nPrevPartMatchEnd, nPartMatchStart)
-								+ '<span class="MatchText">'
-								+ strLine.substring(nPartMatchStart, nPartMatchEnd)
-								+ '</span>';
+			//const SHOWITEM = "Screamer Suit";
+			//if (strItemDescr === SHOWITEM)
+			//{
+			//	console.log("___ ITEM '" + SHOWITEM + "': ___");
+			//	console.log(">>> bMatchInItem = " + bMatchInItem);
+			//	console.log(">>> bMatchInWhere = " + bMatchInWhere);
+			//	console.log(">>> nMatchStart = " + nMatchStart);
+			//	console.log(">>> nMatchEnd = " + nMatchEnd);
+			//	console.log(">>> strLine = '" + strLine + "'");
+			//	console.log(">>> item = '" + strLine.substring(nItemStart, nItemEnd) + "'");
+			//	console.log(">>> where = '" + strLine.substr(nWhereStart) + "'");
+			//	console.log(">>> strOverallMatch = '" + strOverallMatch + "'");
+			//	console.log(match);
+			//}
 			
-			nPrevPartMatchEnd = nPartMatchEnd;
-			if ((i + 1) < nNumGroups)
-				nPrevSkippedCharsEnd = nPartMatchEnd + match[i + 1].length;
+			let nPrevPartMatchEnd = nItemStart;
+			let nPrevSkippedCharsEnd = nMatchStart;
+			let nScore = 0;
+			let nNumPartScores = 0;
+			let strLineHilited = "";
+			
+			// Get score for for each matching part, then average those part scores to get the overall
+			// score; match parts start at group 2, and there's a pair of groups captured for each part:
+			// (1) the matching part, and (2) the subsequent skipped chars up to the next matching part
+			const nNumGroups = match.length;
+			for (let i = 2; i < nNumGroups; i += 2)
+			{
+				const strPartMatch = match[i];
+				const nPartMatchStart = nPrevSkippedCharsEnd;
+				const nPartMatchEnd = nPartMatchStart + strPartMatch.length;
+				const bPartMatchInItem = (nPartMatchStart < nWhereStart);
+				const bPartMatchInWhere = (nPartMatchEnd > nWhereStart);
+				
+				if (bPartMatchInWhere)
+				{
+					const nPrevWherePartMatchEnd = (i == 2)? nWhereStart : nPrevPartMatchEnd;
+					nScore += getWherePartMatchScore(strPartMatch, strLine, nPartMatchStart, nPrevWherePartMatchEnd);
+				}
+				else
+					nScore += getPartMatchScore(strPartMatch, strLine, nPartMatchStart, nPrevPartMatchEnd, nItemEnd);
+				
+				nNumPartScores++;
+				
+				if (bPartMatchInItem && bPartMatchInWhere)
+					// This match part spans across the item/where record-separator, so
+					// need to close and re-open the MatchText span around that separator
+					strLineHilited += strLine.substring(nPrevPartMatchEnd, nPartMatchStart)
+									+ '<span class="MatchText">'
+									+ strLine.substring(nPartMatchStart, nItemEnd)
+									+ '</span>'
+									+ kStrRecordSeparator
+									+ '<span class="MatchText">'
+									+ strLine.substring(nWhereStart, nPartMatchEnd)
+									+ '</span>';
+				else
+					strLineHilited += strLine.substring(nPrevPartMatchEnd, nPartMatchStart)
+									+ '<span class="MatchText">'
+									+ strLine.substring(nPartMatchStart, nPartMatchEnd)
+									+ '</span>';
+				
+				nPrevPartMatchEnd = nPartMatchEnd;
+				if ((i + 1) < nNumGroups)
+					nPrevSkippedCharsEnd = nPartMatchEnd + match[i + 1].length;
+			}
+			
+			strLineHilited += strLine.substr(nPrevPartMatchEnd);
+			
+			//if (strItemDescr === SHOWITEM)
+			//{
+			//	console.log(strLineHilited);
+			//}
+			
+			// Score is average of the scores for the part matches
+			nScore = nScore / nNumPartScores;
+			
+			const nQuantity = strQuantity? (parseInt(strQuantity) || 1) : 1;
+			const nHilitedItemEnd = strLineHilited.indexOf(kStrRecordSeparator);
+			const strItemDescr = strLineHilited.substr(0, nHilitedItemEnd);
+			const strWhere = strLineHilited.substr(nHilitedItemEnd + kStrRecordSeparator.length);
+			
+			arrResults.push({nScore, bMatchInItem, bMatchInWhere, nQuantity, strItemDescr, strWhere, strItemInfo});
 		}
-		
-		strLineHilited += strLine.substr(nPrevPartMatchEnd);
-		
-		//if (strItemDescr === SHOWITEM)
-		//{
-		//	console.log(strLineHilited);
-		//}
-		
-		// Score is average of the scores for the part matches
-		nScore = nScore / nNumPartScores;
-		
-		const nQuantity = strQuantity? (parseInt(strQuantity) || 1) : 1;
-		const nHilitedItemEnd = strLineHilited.indexOf(kStrRecordSeparator);
-		const strItemDescr = strLineHilited.substr(0, nHilitedItemEnd);
-		const strWhere = strLineHilited.substr(nHilitedItemEnd + kStrRecordSeparator.length);
-		
-		arrResults.push({nScore, bMatchInItem, bMatchInWhere, nQuantity, strItemDescr, strWhere});
 	}
 	
 	arrResults.bMatchesInItem = bMatchesInItem;
@@ -619,7 +809,29 @@ function styleWhere(strWhere)
 }
 
 
-function getPartMatchScore(strMatch, strText, nMatchStart, nPrevPartMatchEnd)
+// Higher match score for:
+// 
+// 1. Complete word match with given search word
+// 	  (so "D4 E" scores "[D4] Sh[e]lf..." *below*
+// 	  "[D4] Shelf 3 Box [E]")
+// 
+// 2. Search words closer to start of match words
+// 	 	(significant score for at-start, much lower
+// 	 	fractional score for anywhere else in match
+// 	 	word, diminishing with distance from start)
+// 
+// 3. Also score for number of letters matching within
+// 	 	surrounding word, proportional to fraction
+// 	 	of number of letters in surrounding word --
+// 	 	with special-case for only 1-letter match
+// 	  (if surrounding word is more than 1 letter):
+// 	  very low score (though higher at start of word)
+// 
+// 4. First search word closer to start of target
+// 
+// 5. Shorter distance between search words in match
+//
+function getPartMatchScore(strMatch, strText, nMatchStart, nPrevPartMatchEnd, nItemEnd)
 {
 	// Find match's word offset from previous match part, and char offset within word
 	var nPrevSpacePos = nMatchStart - 1;
@@ -660,7 +872,9 @@ function getPartMatchScore(strMatch, strText, nMatchStart, nPrevPartMatchEnd)
 	nScore -= (nMatchWordEndPos - nMatchEnd);
 	
 	// Reduce score by number of letters after match
-	nScore -= (strText.length - nMatchEnd);
+	if (nMatchEnd > nItemEnd)
+		nItemEnd = strText.length;
+	nScore -= (nItemEnd - nMatchEnd);
 	
 	return nScore;
 }
@@ -733,154 +947,42 @@ function getWherePartMatchScore(strMatch, strText, nMatchStart, nPrevPartMatchEn
 }
 
 
-function sendRequest(strRigLetter, strAdditionalParam, fcnOnResponse)
+// NOTE: this must match server-side implementation exactly
+//
+const INVENTORY_JSON_DELIM = '\n"""""\n';  // since more than 2 consecutive double-quotes can't appear in valid JSON
+function parseCombinedInventoryText(str)
 {
-	const strUrl = kstrServerUrl + encodeURIComponent(strRigLetter) + (strAdditionalParam || "");
-	const objReq = new XMLHttpRequest();
-	objReq.addEventListener("load", fcnOnResponse);
-	objReq.open("GET", strUrl);
-	objReq.setRequestHeader("Content-Type", "text/plain;charset=utf-8");  // to avoid Google Apps Script CORS restriction
-	objReq.send();
-	objReq.strRigLetter = strRigLetter;  // remember which rig, in case response fails to include it
-	return objReq;
-}
+  const jsonEnd = str.indexOf(INVENTORY_JSON_DELIM);
+  const inventoryStart = jsonEnd + INVENTORY_JSON_DELIM.length;
+  const hasDelimiter = (jsonEnd !== -1);
 
+  var clientConfig;
+  try
+  {
+    clientConfig = JSON.parse(hasDelimiter? str.substring(0, jsonEnd) : str);
+    if (!hasDelimiter)
+      return clientConfig;
+  }
+  catch (e)
+  {
+    return null;
+  }
 
-function loadRig(strRigLetter)
-{
-	const strCachedRigInfoJSON = localStorage.getItem(strRigLetter + kCacheRigSuffix);
-	objRigInfo = strCachedRigInfoJSON && JSON.parse(strCachedRigInfoJSON);
-	if (strCachedRigInfoJSON)
-	{
-		// In cache
-		console.log(`Loading ${strRigLetter} rig content from local cache; asynchronously checking server for updates...`);
-		const objRigInfo = strCachedRigInfoJSON && JSON.parse(strCachedRigInfoJSON);
-		gMapRigContents[strRigLetter] = objRigInfo;
-		updateUIMode();
-		updateSearchResults();
-		
-		// Request this rig file's modTime, then refetch/recache if it's newer than our cache
-		sendRequest(strRigLetter, kstrGetModTimeUrlParam, response_refetchRigIfNeeded);
-	}
-	else if (!gMapPendingContentRequests[strRigLetter])
-	{
-		// Not in cache & there's not already a request pending for this rig
-		console.log(`Requesting ${strRigLetter} rig content from server...`);
-		const objReq = sendRequest(strRigLetter, null, response_storeReceivedRigContent);
-		gMapPendingContentRequests[strRigLetter] = objReq;
-		updateUIMode();
-	}
-	else
-		console.log(`Already requesting ${strRigLetter} rig content from server...`);
-}
+  const rigInventoriesMap = clientConfig.rigInventoriesMap;
+  for (const rigName in rigInventoriesMap)
+  {
+    const textOffsets = rigInventoriesMap[rigName];
+    rigInventoriesMap[rigName] = str.substring(inventoryStart + textOffsets.fromOffset, inventoryStart + textOffsets.toOffset);
+  }
 
-
-// Called when rig has been "unselected"
-function removeRig(strRigLetter)
-{
-	console.log(`Purging rig contents for ${strRigLetter} rig`);
-	// Remove pending request for this rig's contents, if any
-	unpendRigRequest(strRigLetter);
-	delete gMapRigContents[strRigLetter];
-	updateUIMode();
-	updateSearchResults();
-}
-
-
-function unpendRigRequest(strRigLetter)
-{
-	// Was a request for this rig's contents pending?
-	const objRemoveReq = gMapPendingContentRequests[strRigLetter];
-	if (objRemoveReq)
-	{
-		// Yes; remove it from the pending requests map
-		delete gMapPendingContentRequests[strRigLetter];
-		// And abort it if still open
-		if (objRemoveReq.status == 0)
-			objRemoveReq.abort();
-		
-		const nNumPending = Object.keys(gMapPendingContentRequests).length;
-		if (nNumPending)
-			console.log(`...${nNumPending} rig contents request(s) still pending`);
-		else
-			console.log(`--> All rig contents requests completed`);
-	}
-}
-
-
-function response_refetchRigIfNeeded()
-{
-	const objResponse = this;
-	var objModTimeInfo = JSON.parse(objResponse.responseText);
-	if (objModTimeInfo)
-	{
-		const strRigLetter = objModTimeInfo.rig;
-		const objLocalRigInfo = gMapRigContents[strRigLetter];
-		const nCacheModTime = objLocalRigInfo?.modTime && (parseInt(objLocalRigInfo.modTime) || 0);
-		const nRemoteModTime = objModTimeInfo?.modTime && parseInt(objModTimeInfo.modTime);
-		if (nRemoteModTime && (nRemoteModTime > nCacheModTime))
-		{
-			console.log(`--> Newer ${strRigLetter} rig content on server; clearing local cache & refetching`);
-			// Remove from cache
-			localStorage.removeItem(strRigLetter + kCacheRigSuffix);
-			// And re-fetch
-			loadRig(strRigLetter);
-		}
-		else
-			console.log(`--> Local cache for ${strRigLetter} rig is up to date with server`);
-	}
-}
-
-
-function response_storeReceivedRigContent()
-{
-	const objResponse = this;
-	const strRigLetter = objResponse.strRigLetter;
-	
-	// Remove pending request for this rig's contents
-	unpendRigRequest(strRigLetter);
-	
-	var objRigInfo = null;
-	if (objResponse)
-	{
-		const strRigInfoJSON = objResponse.responseText;
-		var objRigInfo = JSON.parse(strRigInfoJSON);
-		if (objRigInfo)
-		{
-			// Cache this new version of contents to localStorage
-			const strReceivedRigLetter = objRigInfo.rig || strRigLetter;
-			console.log(`--> Rig contents for ${strReceivedRigLetter} rig received`);
-			localStorage.setItem(strReceivedRigLetter + kCacheRigSuffix, strRigInfoJSON);
-			
-			// Only update in UI if this rig is still selected (user may have
-			// unchecked its checkbox while the fetch results were being awaited)
-			if (gMapRigToggles[strReceivedRigLetter]?.checked)
-			{
-				gMapRigContents[strReceivedRigLetter] = objRigInfo;
-				updateSearchResults();
-			}
-		}
-	}
-	
-	updateUIMode();
+  return clientConfig;
 }
 
 
 function clearCache()
 {
-	// Clear out each rig's content cache
-	Object.keys(localStorage).
-		filter(strKey => strKey.endsWith(kCacheRigSuffix)).
-		forEach(strKey => localStorage.removeItem(strKey));
-	
-	// Unselect all rigs
-	const arrRigCheckboxes = Object.values(gMapRigToggles);
-	for (const i in arrRigCheckboxes)
-	{
-		const eltRigCheckbox = arrRigCheckboxes[i];
-		eltRigCheckbox.checked = false;
-		rigSelect_onClick(eltRigCheckbox);
-	}
+	gObjInventoryInfo = null;
+	localStorage.removeItem(INVENTORYCACHE_STORAGE_KEY);
 	
 	// Empty the search text
 	searchText_saveValueAndRefresh("");
@@ -921,34 +1023,272 @@ function searchText_saveValueAndRefresh(strVal)
 		return;
 	
 	gStrSearchText = strVal;
-	localStorage.setItem("searchText", strVal);
+	localStorage.setItem(SEARCHTEXT_STORAGE_KEY, strVal);
 	updateSearchResults();
 }
 
 
-function rigSelect_onClick(eltRigCheckbox)
+function itemDescr_onClick(evt)
 {
-	const strRigLetter = eltRigCheckbox.name;
-	if (eltRigCheckbox.checked)
-		loadRig(strRigLetter);
+	if (gEltLinksMenuShownFor === evt.target)
+		dismissLinksMenu();
 	else
-		removeRig(strRigLetter);
+		openLinksMenu(evt.target);
+}
+
+
+function openLinksMenu(eltItemDescr)
+{
+	dismissLinksMenu();
 	
-	const arrEnabledRigs = Object.values(gMapRigToggles).filter(elt => elt.checked).map(elt => elt.name);
-	localStorage.setItem("enabledRigs", JSON.stringify(arrEnabledRigs));
+	const strLinks = eltItemDescr?.getAttribute("data-links");
+	if (!strLinks)
+		return;
+	
+	let arrLinks;
+	try
+	{
+		arrLinks = JSON.parse(strLinks);
+	}
+	catch(e)
+	{
+		return;
+	}
+	
+	// Determine scroll offset
+	let elt = eltItemDescr;
+	let scrollX = 0;
+	let scrollY = 0;
+	while (elt)
+	{
+		scrollX += elt.scrollLeft;
+		scrollY += elt.scrollTop;
+		elt = elt.parentElement;
+	}
+	
+	// Position menu below eltItemDescr
+	const boundingRect = eltItemDescr.getBoundingClientRect();
+	const menuLeft = boundingRect.left + scrollX + REM_PX;
+	const menuTop = boundingRect.bottom + scrollY + REM_PX / 4;
+	const eltLinksMenu = document.getElementById("ItemLinksMenu");
+	eltLinksMenu.style.left = `${menuLeft}px`;
+	eltLinksMenu.style.top = `${menuTop}px`;
+	
+	// Clear out old menu items
+	while (eltLinksMenu.firstChild)
+		eltLinksMenu.removeChild(eltLinksMenu.lastChild);
+	
+	// Build new menu items
+	for (const {title, icon, url} of arrLinks)
+	{
+		const eltMenuItem = document.createElement("A");
+		const eltIcon = document.createElement("IMG");
+		eltIcon.src = `LinkIcon_${icon}.png`;
+		eltMenuItem.appendChild(eltIcon);
+		eltMenuItem.appendChild(document.createTextNode(title));
+		eltMenuItem.href = url;
+		eltMenuItem.target = "_blank";
+		eltLinksMenu.appendChild(eltMenuItem);
+	}
+	
+	gEltLinksMenuShownFor = eltItemDescr;
+	eltLinksMenu.style.display = "inline-block";
+}
+
+
+function dismissLinksMenu()
+{
+ 	if (gEltLinksMenuShownFor)
+	{
+		document.getElementById("ItemLinksMenu").style.display = "none";
+		gEltLinksMenuShownFor = null;
+	}
+}
+
+
+function maybeDismissLinksMenu(evt)
+{
+	if (gEltLinksMenuShownFor
+			&& !gEltLinksMenuShownFor.contains(evt.target)
+			&& !document.getElementById("ItemLinksMenu").contains(evt.target))
+		dismissLinksMenu();
+}
+
+
+function rigSelect_onMouseDown(evt)
+{
+	const coords = getEventCoords(evt);
+	if (!coords)
+		return;
+	
+	const [x, y] = coords;
+	const eltRigCheckbox = getRigSelectAtCoords(x, y);
+	if (!eltRigCheckbox)
+		return;
+	
+	evt.preventDefault();
+	
+	const bChecked = !eltRigCheckbox.checked;
+	eltRigCheckbox.checked = bChecked;
+	
+	const checkedStates = {};
+	document.querySelectorAll("#RigToggles input[type=checkbox]")
+		.forEach(elt => checkedStates[elt.name] = elt.checked);
+
+	// Allow drag-selection up to a 1rem slop around the toggles
+	const slop = REM_PX;
+	const boundingRect = document.getElementById("RigToggles").getBoundingClientRect();
+
+	gObjRigSelectMouseDown.elt = eltRigCheckbox;
+	gObjRigSelectMouseDown.bChecked = bChecked;
+	gObjRigSelectMouseDown.initialChecks = checkedStates;
+	gObjRigSelectMouseDown.startX = x;
+	gObjRigSelectMouseDown.startY = y;
+	gObjRigSelectMouseDown.eltHiliteBox = document.getElementById("RigSelectionHilite");
+	gObjRigSelectMouseDown.dragLimitLeft = boundingRect.left - slop;
+	gObjRigSelectMouseDown.dragLimitTop = boundingRect.top - slop;
+	gObjRigSelectMouseDown.dragLimitRight = boundingRect.left + Math.abs(boundingRect.width) + slop;
+	gObjRigSelectMouseDown.dragLimitBottom = boundingRect.top + Math.abs(boundingRect.height) + slop;
+	
+	onSelectedRigsChanged();
+}
+
+
+function rigSelect_onMouseOver(evt)
+{
+	// If not in a click-and-drag/touch-and-drag that started on a rigSelect button, then keep default behavior
+	if (!gObjRigSelectMouseDown.elt)
+		return;
+	
+	evt.preventDefault();
+		
+	const coords = getEventCoords(evt);
+	if (!coords)
+		return;
+	
+	let [x, y] = coords;
+	const {startX, startY, bChecked, initialChecks, eltHiliteBox,
+					dragLimitLeft, dragLimitTop, dragLimitRight, dragLimitBottom} = gObjRigSelectMouseDown;
+	
+	let bShowHilite = true;
+	if (x < dragLimitLeft || x >= dragLimitRight || y < dragLimitTop || y >= dragLimitBottom)
+	{
+		// Suppress the selection hilite if dragged outside the limits
+		bShowHilite = false;
+		x = startX;
+		y = startY;
+	}
+	
+	const hiliteLeft = Math.min(x, startX);
+	const hiliteTop = Math.min(y, startY);
+	const hiliteWidth = Math.max(Math.abs(x - startX), 4);   // don't let width be under 4px
+	const hiliteHeight = Math.max(Math.abs(y - startY), 4);  // don't let height be under 4px
+	const hiliteRight = hiliteLeft + hiliteWidth;
+	const hiliteBottom = hiliteTop + hiliteHeight;
+	
+	const hiliteStyle = eltHiliteBox.style;
+	hiliteStyle.display = bShowHilite? "inline-block" : "none";
+	hiliteStyle.left = `${hiliteLeft}px`;
+	hiliteStyle.top = `${hiliteTop}px`;
+	hiliteStyle.width = `${hiliteWidth}px`;
+	hiliteStyle.height = `${hiliteHeight}px`;
+	
+	// Determine which toggles the hilite overlaps
+	document.querySelectorAll("#RigToggles > label").forEach(eltLabel =>
+	{
+		const eltRigToggle = eltLabel.firstElementChild;
+		const labelRect = eltLabel.getBoundingClientRect();
+		const bHiliteOverlaps = (labelRect.right >= hiliteLeft && labelRect.left <= hiliteRight
+															&& labelRect.top <= hiliteBottom && labelRect.bottom >= hiliteTop);
+		
+		// If it overlaps this toggle, set checked to same as the initially clicked toggle's state;
+		// if not, revert it to its own initial toggle state
+		eltRigToggle.checked = bHiliteOverlaps? bChecked : eltRigToggle.checked = initialChecks[eltRigToggle.name];
+	});
+	
+	onSelectedRigsChanged();
+}
+
+
+function rigSelect_onMouseUp(evt)
+{
+	if (gObjRigSelectMouseDown.elt)
+	{
+		gObjRigSelectMouseDown.elt = null;
+		gObjRigSelectMouseDown.eltHiliteBox.style.display = "none";
+		evt.preventDefault();
+	}
+}
+
+
+function getEventCoords(evt)
+{
+	let x = evt.clientX;
+	let y = evt.clientY;
+	if (x !== undefined && y !== undefined)
+		return [x, y];
+
+	if (evt.touches?.length === 1)
+	{
+		x = evt.touches[0]?.clientX;
+		y = evt.touches[0]?.clientY;
+		if (x !== undefined && y !== undefined)
+			return [x, y];
+	}
+
+	return null;
+}
+
+
+function getRigSelectAtCoords(x, y)
+{	
+	let eltRigCheckbox = null;
+	const eltActualTarget = document.elementFromPoint(x, y);
+	if (!eltActualTarget)
+		return null;
+	
+	if (eltActualTarget.tagName === "INPUT")
+		eltRigCheckbox = eltActualTarget;
+	else if (eltActualTarget.tagName === "SPAN")
+		eltRigCheckbox = eltActualTarget.previousElementSibling;
+	else if (eltActualTarget.tagName === "LABEL")
+		eltRigCheckbox = eltActualTarget.firstElementChild;
+	
+	if (eltRigCheckbox?.tagName === "INPUT" && eltRigCheckbox.parentElement?.parentElement?.id === "RigToggles")
+		return eltRigCheckbox;
+	else
+		return null;
+}
+
+
+function onSelectedRigsChanged()
+{
+	const arrCheckedButtonNames = Object.values(gMapRigCheckboxes).filter(elt => elt.checked).map(elt => elt.name);
+	if (arrayEquals(arrCheckedButtonNames, gArrCheckedButtonNames))
+		return;
+	
+	localStorage.setItem(SELECTEDRIGS_STORAGE_KEY, JSON.stringify(arrCheckedButtonNames));
+	
+	const bNewRigSelected = arrCheckedButtonNames.some(name => !gArrCheckedButtonNames.includes(name));
+	gArrCheckedButtonNames = arrCheckedButtonNames;
+	
+	if (bNewRigSelected)
+		fetchUpdateIfNeeded();
+	
+	updateUIMode();
+	updateSearchResults();
 }
 
 
 function updateUIMode()
 {
 	// Show or hide status message, depending on whether any rigs are selected or not
-	const bNoRigsSelected = !Object.values(gMapRigToggles).some(eltInput => eltInput.checked);
+	const bNoRigsSelected = !Object.values(gMapRigCheckboxes).some(eltInput => eltInput.checked);
 	const eltStatusMessage = document.getElementById("StatusMessage");
 	eltStatusMessage.style.display = bNoRigsSelected? "block" : "none";
 	
 	// Show or hide "waiting" modal, depending on whether any content requests are pending
-	const bPendingContentRequests = (Object.keys(gMapPendingContentRequests).length !== 0);
-	showHideModal("AwaitResultsModal", bPendingContentRequests);
+	showHideModal("AwaitResultsModal", gbPendingUpdateUI);
 }
 
 
