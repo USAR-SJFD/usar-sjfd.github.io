@@ -1,6 +1,6 @@
 
 // Global consts
-const SERVER_BASE_URL = "https://script.google.com/macros/s/AKfycbyGvWusy1mwseydQ5SfgajdhavDIRaftGs5eIiLJigJPcVaASPebvN4tWOiMfgQ4olw/exec";
+const SERVER_BASE_URL = "https://script.google.com/macros/s/AKfycbx6LNyGmIp42Y_wQrTXtvZvwEKBCqYiJgL9bqPFxrE1nNFN56h-gSGpGYpzfu1-x-mr/exec";
 const FETCH_PARAMS = {cache: 'no-store'};
 
 const kstrGetImagesMapParam = "&getImagesMap=1";
