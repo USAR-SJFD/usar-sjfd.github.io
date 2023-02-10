@@ -1,6 +1,6 @@
 
 // Global consts
-const SERVER_BASE_URL = "https://script.google.com/macros/s/AKfycbx6LNyGmIp42Y_wQrTXtvZvwEKBCqYiJgL9bqPFxrE1nNFN56h-gSGpGYpzfu1-x-mr/exec";
+const SERVER_BASE_URL = "https://script.google.com/macros/s/AKfycbzJjozYF_MMxkVR4LVdj-zU0uzRW0CL4gAmhTIzWSmPsjFJ-NuXXAZf0Ad2ZSqPRUNN/exec";
 const FETCH_PARAMS = {cache: 'no-store'};
 
 const kstrGetImagesMapParam = "&getImagesMap=1";
@@ -11,6 +11,7 @@ const SELECTEDRIGS_STORAGE_KEY = "SelectedRigs";
 const SEARCHTEXT_STORAGE_KEY = "SearchText";
 const INVENTORYCACHE_STORAGE_KEY = "InventoryCache";
 const IMAGESMAP_STORAGE_KEY = "ImagesMap";
+const LASTREQUESTTIME_STORAGE_KEY = "LastRequestTime";
 
 const knMinimumSearchTextLen = 2;
 const kStrInternalSeparator = "\t";
@@ -30,6 +31,7 @@ const SUPPRESS_EVENT = evt => evt.preventDefault();
 var gObjInventoryInfo = null;		// will contain {cacheModTime, rigButtonsMap, rigInventoriesMap}
 //var gnResponsesPending = 0;
 var gbPendingUpdateFetch = false;
+var gbPendingDelayedUpdateFetch = false;
 var gbPendingUpdateUI = false;
 var gArrRigButtonNames = [];
 var gArrCheckedButtonNames = [];
@@ -89,9 +91,30 @@ function init()
 
 function fetchUpdateIfNeeded()
 {
-	if (gbPendingUpdateFetch)
+	// Don't request again while a prior request is still pending, or a delayed request timer is pending
+	if (gbPendingUpdateFetch || gbPendingDelayedUpdateFetch)
 		return;
 	
+	// Throttle requests so as not to flood server, to reduce chance of Google Drive API "Rate Limit Exceeded" error
+	const now = Date.now();
+	const strLastRequestTime = localStorage.getItem(LASTREQUESTTIME_STORAGE_KEY);
+	const nLastRequestTime = strLastRequestTime? parseInt(strLastRequestTime) : 0;
+	const nMillisSinceLastRequest = now - nLastRequestTime;
+	
+	// If it's been less than 1 second since prior request, wait till get to 1 second to request again
+	if (nMillisSinceLastRequest < 1000)
+	{
+		console.log("Throttling server request (max 1 per second)");
+		const nMillisToOneSecond = 1000 - nMillisSinceLastRequest;
+		gbPendingDelayedUpdateFetch = true;
+		setTimeout(() => {
+			gbPendingDelayedUpdateFetch = false;
+			fetchUpdateIfNeeded();
+		}, nMillisToOneSecond);
+		return;
+	}
+	
+	localStorage.setItem(LASTREQUESTTIME_STORAGE_KEY, String(now));
 	gbPendingUpdateFetch = true;
 	
 	const strCacheModTime = gObjInventoryInfo?.cacheModTime;
@@ -165,12 +188,12 @@ async function handleServerResponse(strRequestAction, objResponse, objFetchErr)
 						// put the UI in update mode; do it now on a brief timer just so user knows update happened
 						gbPendingUpdateUI = true;
 						setTimeout(() => {
-								if (!gbPendingUpdateFetch)
-								{
-									gbPendingUpdateUI = false;
-									updateUIMode();
-								}
-							}, 1000);
+							if (!gbPendingUpdateFetch)
+							{
+								gbPendingUpdateUI = false;
+								updateUIMode();
+							}
+						}, 1000);
 					}
 					break;
 				
@@ -326,9 +349,7 @@ function updateSearchResults()
 			console.log(searchRegex);
 			console.log(searchWhereRegex);
 			
-			// Combine search results for all selected rigs -- in alphabetical rig order,
-			// so same-score results will be in that order after final sort
-			arrCheckedButtonNames.sort();
+			// Combine search results for all selected rigs
 			var bMatchesInItem = false;
 			var bMatchesInWhere = false;
 			for (const strButtonName of arrCheckedButtonNames)
@@ -341,10 +362,9 @@ function updateSearchResults()
 			}
 			//console.log(`IN ITEMS?  ${bMatchesInItem}   IN WHERES?  ${bMatchesInWhere}`);
 			
-			// Sort results from highest to lowest score (note that sort is stable, so items with
-			// equal scores items will be listed in same order as they appear in the inventory)
-			arrResults.sort((match1, match2) => (match2.nScore - match1.nScore));
-			//arrResults.sort(matchSortOrder);
+			// Sort results from highest to lowest score, by item description if same score,
+			// and by location if same item description
+			arrResults.sort(matchSortOrder);
 			
 			// Split results in those that matched only in the "where" section, and all others
 			var arrResultsInWhere = arrResults.filter(match => (match.bMatchInWhere && !match.bMatchInItem));
@@ -368,24 +388,26 @@ function updateSearchResults()
 }
 
 
-//function matchSortOrder(match1, match2)
-//{
-//	const nRelScore = match2.nScore - match1.nScore;
-//	if (nRelScore !== 0)
-//		return nRelScore;
-//
-//	if (match2.strItemDescr < match1.strItemDescr)
-//		return 1;
-//	if (match2.strItemDescr > match1.strItemDescr)
-//		return -1;
-//
-//	if (match2.strWhere < match1.strWhere)
-//		return 1;
-//	if (match2.strWhere > match1.strWhere)
-//		return -1;
-//
-//	return 0;
-//}
+// Sort results from highest to lowest score, by item description if same score,
+// and by location if same item description
+function matchSortOrder(match1, match2)
+{
+	const nRelScore = match2.nScore - match1.nScore;
+	if (nRelScore !== 0)
+		return nRelScore;
+
+	if (match2.strItemDescr < match1.strItemDescr)
+		return 1;
+	if (match2.strItemDescr > match1.strItemDescr)
+		return -1;
+
+	if (match2.strWhere < match1.strWhere)
+		return 1;
+	if (match2.strWhere > match1.strWhere)
+		return -1;
+
+	return 0;
+}
 
 
 function rebuildSearchResultsTable(arrResults)
