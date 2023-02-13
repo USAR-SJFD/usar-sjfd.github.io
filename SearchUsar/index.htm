@@ -26,9 +26,8 @@
     <div id="PageHeader">
       <form id="SearchForm" target="." onsubmit="searchInput_onSubmit()">
         <div id="RigToggles">
-          <!-- Include a couple placeholder buttons just for aesthetics during initial load -->
-          <label><input type="checkbox" disabled><span>&nbsp;</span></label>
-          <label><input type="checkbox" disabled><span>&nbsp;</span></label>
+          <!-- Leave rig toggles area empty during initial load -->
+          <label style="visibility: hidden"><input type="checkbox" disabled><span>&nbsp;</span></label>
         </div>
         <input id="SearchInput" type="search" name="Search" value=""
           onKeyUp="searchInput_onKeyUp(this, event)"

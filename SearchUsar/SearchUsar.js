@@ -1,6 +1,6 @@
 
 // Global consts
-const SERVER_BASE_URL = "https://script.google.com/macros/s/AKfycbzJjozYF_MMxkVR4LVdj-zU0uzRW0CL4gAmhTIzWSmPsjFJ-NuXXAZf0Ad2ZSqPRUNN/exec";
+const SERVER_BASE_URL = "https://script.google.com/macros/s/AKfycbzNSdtR_yeKejvosMAb0p622VnwEXUN83FTWhqaW8B9v1756bRjk_cq1K-9ppfSP5rD/exec";
 const FETCH_PARAMS = {cache: 'no-store'};
 
 const kstrGetImagesMapParam = "&getImagesMap=1";
@@ -55,7 +55,7 @@ function init()
 	const strInventoryInfo = localStorage.getItem(INVENTORYCACHE_STORAGE_KEY);
 	gObjInventoryInfo = strInventoryInfo && parseCombinedInventoryText(strInventoryInfo);
 	updateRigToggles();
-  fetchUpdateIfNeeded();
+	fetchUpdateIfNeeded();
 	
 	//loadImagesMap();  //################
 	
@@ -123,7 +123,8 @@ function fetchUpdateIfNeeded()
 		// We have local cache; silently check for update, only showing update modal if isUpdateNeeded responds true
 		console.log("Requesting inventory content from server via 'getIfNeeded'...");
 		serverRequest("isUpdateNeeded", strCacheModTime);
-		serverRequest("getIfNeeded", strCacheModTime);
+		// Briefly delay this second request to (1) minimize server flooding, and (2) give server a chance to cache and reuse date-checking info
+		setTimeout(() => serverRequest("getIfNeeded", strCacheModTime), 500);
 	}
 	else
 	{
