@@ -1,13 +1,16 @@
 
 // Global consts
-const SERVER_BASE_URL = "https://script.google.com/macros/s/AKfycbzPdaLIiEJuVQoPZ_CYbL29DwvnJJxqtRv4MlNoYIAEdfQxndXl_JFpFeGR9SeRoe6O/exec";
+const SERVER_BASE_URL = "https://script.google.com/macros/s/AKfycbzJjozYF_MMxkVR4LVdj-zU0uzRW0CL4gAmhTIzWSmPsjFJ-NuXXAZf0Ad2ZSqPRUNN/exec";
 const FETCH_PARAMS = {cache: 'no-store'};
+
+const kstrGetImagesMapParam = "&getImagesMap=1";
+const kstrGetModTimeUrlParam = "&getModTime=1";
 
 const SERVERVERSION_STORAGE_KEY = "ServerVersion";
 const SELECTEDRIGS_STORAGE_KEY = "SelectedRigs";
 const SEARCHTEXT_STORAGE_KEY = "SearchText";
 const INVENTORYCACHE_STORAGE_KEY = "InventoryCache";
-const LOCATIONPICSMAP_STORAGE_KEY = "LocationPicsMap";
+const IMAGESMAP_STORAGE_KEY = "ImagesMap";
 const LASTREQUESTTIME_STORAGE_KEY = "LastRequestTime";
 
 const knMinimumSearchTextLen = 2;
@@ -26,13 +29,14 @@ const SUPPRESS_EVENT = evt => evt.preventDefault();
 
 // Global vars
 var gObjInventoryInfo = null;		// will contain {cacheModTime, rigButtonsMap, rigInventoriesMap}
+//var gnResponsesPending = 0;
 var gbPendingUpdateFetch = false;
 var gbPendingDelayedUpdateFetch = false;
 var gbPendingUpdateUI = false;
 var gArrRigButtonNames = [];
 var gArrCheckedButtonNames = [];
 
-var gMapLocationPics = {};
+var gMapImages = {};
 var gMapRigCheckboxes = {};    // will contain {<buttonName>: <eltCheckbox>, ...}
 var gStrSearchText = "";
 var gObjRigSelectMouseDown = {};
@@ -45,22 +49,15 @@ function init()
 	{
 		localStorage.setItem(SERVERVERSION_STORAGE_KEY, SERVER_BASE_URL);
 		console.log("Clearing local cache because server version has been updated");
-		return clearCache();  // this causes reload		
+		clearCache();
 	}
 	
 	const strInventoryInfo = localStorage.getItem(INVENTORYCACHE_STORAGE_KEY);
 	gObjInventoryInfo = strInventoryInfo && parseCombinedInventoryText(strInventoryInfo);
 	updateRigToggles();
-	fetchUpdateIfNeeded();
+  fetchUpdateIfNeeded();
 	
-	const strPicsMapJSON = localStorage.getItem(LOCATIONPICSMAP_STORAGE_KEY);
-	gMapLocationPics = (strPicsMapJSON && safeJsonParse(strPicsMapJSON)) || {};
-
-	// Briefly delay getLocationPics request to minimize server flooding (and since it's a lower priority update)
-	setTimeout(() => {
-		console.log("Server request: 'getLocationPics' (location pictures map)...");
-		serverRequest("getLocationPics");
-	}, 750);
+	//loadImagesMap();  //################
 	
 	const strSearchText = localStorage.getItem(SEARCHTEXT_STORAGE_KEY);
 	if (strSearchText)
@@ -124,15 +121,14 @@ function fetchUpdateIfNeeded()
 	if (strCacheModTime)
 	{
 		// We have local cache; silently check for update, only showing update modal if isUpdateNeeded responds true
-		console.log("Server request: 'getIfNeeded' (inventory content)...");
+		console.log("Requesting inventory content from server via 'getIfNeeded'...");
 		serverRequest("isUpdateNeeded", strCacheModTime);
-		// Briefly delay this second request to (1) minimize server flooding, and (2) give server a chance to cache and reuse date-checking info
-		setTimeout(() => serverRequest("getIfNeeded", strCacheModTime), 500);
+		serverRequest("getIfNeeded", strCacheModTime);
 	}
 	else
 	{
 		// We don't have local cache; show update modal and fetch update
-		console.log("Server request: 'get' (inventory content)...");
+		console.log("Requesting inventory content from server via 'get'...");
 		serverRequest("get");
 		gbPendingUpdateUI = true;
 		updateUIMode();
@@ -147,12 +143,12 @@ function serverRequest(strRequestAction, strCacheModTime)
 		`${SERVER_BASE_URL}?action=${strRequestAction}&clientCacheModTime=${strCacheModTime}` :
 		`${SERVER_BASE_URL}?action=${strRequestAction}`;
 	fetch(strUrl, FETCH_PARAMS)
-		.then(response => handleServerResponse(strRequestAction, response))
-		.catch(err => handleServerResponse(strRequestAction, null, err));
+		.then(objResponse => handleServerResponse(strRequestAction, objResponse))
+		.catch(objFetchErr => handleServerResponse(strRequestAction, null, objFetchErr));
 }
 
 
-async function handleServerResponse(strRequestAction, response, err)
+async function handleServerResponse(strRequestAction, objResponse, objFetchErr)
 {
 	//gnResponsesPending = Math.max(0, gnResponsesPending - 1);
 	if (gbPendingUpdateFetch && (strRequestAction === "get" || strRequestAction === "getIfNeeded"))
@@ -161,53 +157,59 @@ async function handleServerResponse(strRequestAction, response, err)
 		gbPendingUpdateUI = false;
 	}
 	
-	if (err)
-		showServerError(err.message);
-	else if (!response.ok)
-		showServerError(`${response.statusText} (code ${response.status})`);
+	if (objFetchErr)
+		showServerError(objFetchErr.message);
+	else if (!objResponse.ok)
+		showServerError(`${objResponse.statusText} (code ${objResponse.status})`);
 	else
 	{
-		const strResponseText = await response.text();
-		switch (strRequestAction)
+		const strInventoryInfo = await objResponse.text();
+		const objInventoryInfo = parseCombinedInventoryText(strInventoryInfo);
+		if (objInventoryInfo === null)
+			showServerError(`Unable to parse server response ("${strInventoryInfo}")`);
+		else if (objInventoryInfo.error)
+			showServerError(objInventoryInfo.error);
+		else
 		{
-			case "isUpdateNeeded":
-				if (strResponseText === "false")
-					console.log("--> Server response: no update needed (inventory content)");
-				else if (gbPendingUpdateFetch)
-				{
-					console.log("--> Server response: update needed (inventory content); awaiting 'getIfNeeded' response");
-					gbPendingUpdateUI = true;
-				}
-				else
-				{
-					console.log("--> Server response: update needed (inventory content); already received 'getIfNeeded' response");
-					// We received the 'getIfNeeded' response before the 'isUpdateNeeded' response, so we never
-					// put the UI in update mode; do it now briefly just so user knows an update happened
-					showUpdateUI(1000);
-				}
-				break;
-			
-			case "getIfNeeded":
-			case "get":
-				const objInventoryInfo = parseCombinedInventoryText(strResponseText);
-				if (objInventoryInfo === undefined)
-					showServerError(`Unable to parse server's '${strRequestAction}' response ("${strResponseText}")`);
-				else if (objInventoryInfo.error)
-					showServerError(objInventoryInfo.error);
-				else if (objInventoryInfo?.rigInventoriesMap)
-				{
-					console.log(`--> Server response: update received (inventory content); modTime ${objInventoryInfo.cacheModTime}`);
-					localStorage.setItem(INVENTORYCACHE_STORAGE_KEY, strResponseText);
-					gObjInventoryInfo = objInventoryInfo;
-					updateRigToggles();
-					updateSearchResults();
-				}
-				gbPendingUpdateUI = false;
-				break;
-			
-			case "getLocationPics":
-				updateLocationPicsMapIfNeeded(strResponseText);
-				break;
+			switch (strRequestAction)
+			{
+				case "isUpdateNeeded":
+					if (objInventoryInfo === false)
+						console.log("--> Server response: no update needed");
+					else if (gbPendingUpdateFetch)
+					{
+						console.log("--> Server response: update needed; awaiting 'getIfNeeded' response");
+						gbPendingUpdateUI = true;
+					}
+					else
+					{
+						console.log("--> Server response: update needed; already received 'getIfNeeded' response");
+						// We received the 'getIfNeeded' response before the 'isUpdateNeeded' response, so we never
+						// put the UI in update mode; do it now on a brief timer just so user knows update happened
+						gbPendingUpdateUI = true;
+						setTimeout(() => {
+							if (!gbPendingUpdateFetch)
+							{
+								gbPendingUpdateUI = false;
+								updateUIMode();
+							}
+						}, 1000);
+					}
+					break;
+				
+				case "getIfNeeded":
+				case "get":
+					if (objInventoryInfo.rigInventoriesMap)
+					{
+						console.log(`--> Received updated inventories from server (modTime ${objInventoryInfo.cacheModTime})`);
+						localStorage.setItem(INVENTORYCACHE_STORAGE_KEY, strInventoryInfo);
+						gObjInventoryInfo = objInventoryInfo;
+						updateRigToggles();
+						updateSearchResults();
+					}
+					gbPendingUpdateUI = false;
+					break;
+			}
 		}
 	}
 	
@@ -222,28 +224,44 @@ function showServerError(strErrorMsg)
 }
 
 
-function updateLocationPicsMapIfNeeded(strPicsMapJSON)
+function loadImagesMap()
 {
-	if (localStorage.getItem(LOCATIONPICSMAP_STORAGE_KEY) === strPicsMapJSON)
+	console.log("Loading images-map from local cache; asynchronously checking server for updates...");
+	const strImagesMapJSON = localStorage.getItem(IMAGESMAP_STORAGE_KEY);
+	gMapImages = strImagesMapJSON? JSON.parse(strImagesMapJSON) : {};
+	sendRequest("", kstrGetImagesMapParam + kstrGetModTimeUrlParam, response_refetchImagesMapIfNeeded);
+}
+
+
+function response_refetchImagesMapIfNeeded()
+{
+	const objResponse = this;
+	var strRemoteModTime = objResponse.responseText;
+	if (!gMapImages.modTime || (strRemoteModTime && (strRemoteModTime !== gMapImages.modTime)))
 	{
-		console.log("--> Server response: no update needed (location pictures map)");
-		return;
+		console.log("--> Newer images-map on server; clearing local cache & refetching");
+		// Remove from cache
+		localStorage.removeItem(IMAGESMAP_STORAGE_KEY);
+		// And re-fetch
+		sendRequest("", kstrGetImagesMapParam, response_updateImagesMap);
 	}
-	
-	const mapLocationPics = safeJsonParse(strPicsMapJSON);
-	if (mapLocationPics === undefined)
+	else
+		console.log("--> Local cache for images-map is up to date with server");
+}
+
+
+function response_updateImagesMap()
+{
+	const objResponse = this;
+	var strImagesMapJSON = objResponse.responseText;
+	var mapImages = JSON.parse(strImagesMapJSON);
+	if (mapImages)
 	{
-		showServerError(`Unable to parse server's 'getLocationPics' response ("${strPicsMapJSON}")`);
-		return;
+		console.log("--> Images-map received");
+		gMapImages = mapImages;
+		localStorage.setItem(IMAGESMAP_STORAGE_KEY, strImagesMapJSON);
+		updateSearchResults();
 	}
-	
-	console.log("--> Server response: update received (location pictures map)");
-	localStorage.setItem(LOCATIONPICSMAP_STORAGE_KEY, strPicsMapJSON);
-	gMapLocationPics = mapLocationPics;
-	updateSearchResults();
-	
-	// Briefly put the UI in update mode so user knows an update happened
-	showUpdateUI(1000);
 }
 
 
@@ -267,7 +285,7 @@ function updateRigToggles()
 	gArrRigButtonNames = arrRigButtonNames;
 	
 	const strCheckedButtonNamesJSON = localStorage.getItem(SELECTEDRIGS_STORAGE_KEY);
-	gArrCheckedButtonNames = (strCheckedButtonNamesJSON && safeJsonParse(strCheckedButtonNamesJSON)) || [];
+	gArrCheckedButtonNames = strCheckedButtonNamesJSON? JSON.parse(strCheckedButtonNamesJSON) : [];
 	const eltRigTogglesDiv = document.getElementById("RigToggles");
 	
 	// Remove all current rig toggles
@@ -960,10 +978,18 @@ function parseCombinedInventoryText(str)
   const inventoryStart = jsonEnd + INVENTORY_JSON_DELIM.length;
   const hasDelimiter = (jsonEnd !== -1);
 
-  var clientConfig = safeJsonParse(hasDelimiter? str.substring(0, jsonEnd) : str);
-	if (!clientConfig || !hasDelimiter)
-		return clientConfig;
-	
+  var clientConfig;
+  try
+  {
+    clientConfig = JSON.parse(hasDelimiter? str.substring(0, jsonEnd) : str);
+    if (!hasDelimiter)
+      return clientConfig;
+  }
+  catch (e)
+  {
+    return null;
+  }
+
   const rigInventoriesMap = clientConfig.rigInventoriesMap;
   for (const rigName in rigInventoriesMap)
   {
@@ -975,24 +1001,10 @@ function parseCombinedInventoryText(str)
 }
 
 
-function safeJsonParse(str)
-{
-  try
-  {
-    return JSON.parse(str);
-  }
-  catch (e)
-  {
-    return undefined;
-  }
-}
-
-
 function clearCache()
 {
 	gObjInventoryInfo = null;
 	localStorage.removeItem(INVENTORYCACHE_STORAGE_KEY);
-	localStorage.removeItem(LOCATIONPICSMAP_STORAGE_KEY);
 	
 	// Empty the search text
 	searchText_saveValueAndRefresh("");
@@ -1055,9 +1067,15 @@ function openLinksMenu(eltItemDescr)
 	if (!strLinks)
 		return;
 	
-	const arrLinks = safeJsonParse(strLinks);
-	if (!arrLinks)
+	let arrLinks;
+	try
+	{
+		arrLinks = JSON.parse(strLinks);
+	}
+	catch(e)
+	{
 		return;
+	}
 	
 	// Determine scroll offset
 	let elt = eltItemDescr;
@@ -1283,18 +1301,6 @@ function onSelectedRigsChanged()
 	updateSearchResults();
 }
 
-
-function showUpdateUI(nMillisecs)
-{
-	gbPendingUpdateUI = true;
-	setTimeout(() => {
-		if (!gbPendingUpdateFetch)
-		{
-			gbPendingUpdateUI = false;
-			updateUIMode();
-		}
-	}, nMillisecs);
-}
 
 function updateUIMode()
 {
