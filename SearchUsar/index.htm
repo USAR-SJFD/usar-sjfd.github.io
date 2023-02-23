@@ -25,6 +25,7 @@
     
     <div id="PageHeader">
       <form id="SearchForm" target="." onsubmit="searchInput_onSubmit()">
+        <div id="ErrorIndicator" onclick="showHideErrorMessageBox(true)"><div></div></div>
         <div id="RigToggles">
           <!-- Leave rig toggles area empty during initial load -->
           <label style="visibility: hidden"><input type="checkbox" disabled><span>&nbsp;</span></label>
@@ -36,9 +37,14 @@
       </form>
     </div>
     
-    <div id="ModalOverlay" class="ModalOverlay">
-      <div id="AwaitResultsModal" class="ModalDialog">
-        <img class="RefreshAnim" src="RefreshAnim.gif" />
+    <div id="LoadingModal"></div>
+    <div id="ErrorMessageModal">
+      <div id="ErrorMessageBox">
+        <div class="CloseBox" onclick="showHideErrorMessageBox(false)"></div>
+        <div id="ErrorTitle">Server Error</div>
+        <div id="ErrorMessage"></div>
+        <hr />
+        <div id="ErrorAction">Try <a href="#" onclick="window.location.reload(true);">reloading</a> the page</div>
       </div>
     </div>
     

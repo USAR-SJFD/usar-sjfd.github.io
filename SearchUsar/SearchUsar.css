@@ -63,8 +63,8 @@ html, body {
   margin-right: 0.1em;
   color: #505050;
   background-color: #EEEEEE;
-  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
-  box-shadow: 1px 1px 3px 1px rgba(0, 0, 0, 0.2) inset;
+  text-shadow: 1px 1px 2px rgba(0,0,0, 0.1);
+  box-shadow: 1px 1px 3px 1px rgba(0,0,0, 0.2) inset;
   border: 2px inset lightgray;
   border-radius: 5px;
   cursor: pointer;
@@ -75,9 +75,8 @@ html, body {
 #RigToggles input:checked~ span {
   color: white;
   background-color: var(--toggleCheckedColor);
-  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.4);
-  box-shadow: none;
-  box-shadow: 1px 1px 1px 1px rgba(0, 0, 0, 0.2);
+  text-shadow: 1px 1px 2px rgba(0,0,0, 0.4);
+  box-shadow: 1px 1px 1px 1px rgba(0,0,0, 0.2);
   border: 2px outset #626262;
   transform: translateY(-1px);
   cursor: pointer;
@@ -91,7 +90,7 @@ html, body {
   display: none;
   z-index: 120;
   position: absolute;
-  background-color: rgba(0, 0, 0, 0.15);
+  background-color: rgba(0,0,0, 0.15);
   border-radius: 5px;
 }
 
@@ -106,7 +105,7 @@ html, body {
   padding-top: 0.4em;
   padding-bottom: 0.4em;
   border: 1px solid #404040;
-  box-shadow: 2px 2px 2px 2px rgba(0, 0, 0, 0.2);
+  box-shadow: 2px 2px 2px 2px rgba(0,0,0, 0.2);
 }
 #ItemLinksMenu a:not(:first-child) {
   display: block;
@@ -224,13 +223,13 @@ span.MainWhere {
   color: red;
 }
 
-span.ImageButton {
+span.PictureButton {
   cursor: pointer;
 }
-span.ImageButton:hover {
+span.PictureButton:hover {
   text-decoration: underline dotted;
 }
-span.ImageButton:after {
+span.PictureButton:after {
   background-image: url("PictureIcon.png");
   background-repeat: no-repeat;
   background-size: 1.05em 0.85em;
@@ -254,31 +253,164 @@ span.ImageButton:after {
   color: #909090;
 }
 
-.RefreshAnim {
-  margin: auto;
-  position: absolute;
-  top: 30%;
-  left: 0;
-  right: 0;
-  width: 2em;
-  height: 2em;
-}
 
-.ModalDialog {
+#LoadingModal {
   display: none;
-  width: 100%;
-  height: 100%;
-  margin: auto;
-}
-
-.ModalOverlay {
-  display: none;
+  z-index: 100;
   position: fixed;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  z-index: 100;
-  background-color: rgba(230,230,230,0.7);
+  background-image: url("RefreshAnim.gif");
+  background-repeat: no-repeat;
+  background-size: 2em 2em;
+  background-position: 50% 35%;
+  background-color: rgba(230,230,230, 0.7);
+  backdrop-filter: blur(1px);
 }
+
+
+#ErrorMessageModal {
+  display: none;
+  z-index: 130;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(180,180,180, 0.7);
+  backdrop-filter: blur(1px);
+  justify-content: center;
+}
+#ErrorMessageBox {
+  z-index: 140;
+  margin: auto;
+  position: absolute;
+  top: 25%;
+  left: 0;
+  right: 0;
+  width: min(calc(100% - 5rem), 25rem);
+  background-color: #FCFCFC;
+  padding-left: 0.9em;
+  padding-right: 0.9em;
+  padding-top: 0.8em;
+  padding-bottom: 0.8em;
+  border: 1px solid #404040;
+  box-shadow: 2px 2px 2px 2px rgba(0,0,0, 0.2);
+}
+
+.CloseBox {
+  --closeBoxSize: 1em;
+  position: absolute;
+  top: 0.9em;
+  right: 0.8em;
+  width: var(--closeBoxSize);
+  height: var(--closeBoxSize);
+  opacity: 0.5;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.CloseBox:hover {
+  opacity: 0.9;
+  box-shadow: 1px 1px 3px rgba(0,0,0, 0.4);
+}
+.CloseBox:active {
+  background-color: rgba(0,0,0, 0.1);
+}
+.CloseBox:before, .CloseBox:after {
+  position: absolute;
+  left: calc(var(--closeBoxSize) / 2 - 1px);
+  height: var(--closeBoxSize);
+  width: 2px;
+  background-color: #303030;
+  content: ' ';
+}
+.CloseBox:before {
+  transform: rotate(45deg);
+}
+.CloseBox:after {
+  transform: rotate(-45deg);
+}
+
+#ErrorTitle {
+  font-size: calc(var(--sizeBase) * 1.1);
+  font-weight: bold;
+  color: #404040;
+  padding-bottom: 0.2em;
+}
+#ErrorMessage {
+  font-size: calc(var(--sizeBase) * 0.9);
+  font-style: italic;
+  color: #707070;
+  padding-top: 0.4em;
+  padding-bottom: 0.6em;
+}
+#ErrorAction {
+  padding-top: 0.4em;
+  font-size: var(--sizeBase);
+  color: black;
+}
+#ErrorAction > a {
+  background-color: #E0E0E0;
+  padding-top: 0.1em;
+  padding-bottom: 0.15em;
+  padding-left: 0.3em;
+  border-radius: 6px;
+}
+#ErrorAction > a, #ErrorAction > a:visited {
+  color: #0000EE;
+}
+#ErrorAction > a:after {
+  --refreshIconSize: 0.9em;
+  background-image: url("ReloadIcon_blue.png");
+  background-repeat: no-repeat;
+  background-size: var(--refreshIconSize) var(--refreshIconSize);
+  width: var(--refreshIconSize);
+  height: var(--refreshIconSize);
+  margin-bottom: -0.12em;
+  margin-left: 0.2em;
+  padding-right: 0.25em;
+  display: inline-block;
+  content: "";
+}
+
+#ErrorIndicator {
+  display: none;
+  z-index: 115;
+  position: absolute;
+  float: right;
+  top: -0.6em;
+  right: -0.35em;
+  width: 4em;
+  height: 4em;
+  /* PageHeader background color is #DDDDDD (= 221,221,221); make this halo match it */
+  /*background: radial-gradient(closest-side, rgba(221,221,221, 0.9) 70%, rgba(221,221,221, 0) 100%);*/
+  /* PageHeader background color is #DDDDDD (= 221,221,221); make this halo just slightly lighter */
+  background: radial-gradient(closest-side, rgba(224,224,224, 0.9) 70%, rgba(224,224,224, 0) 100%);
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+#ErrorIndicator > div {
+  --errIconSize: 1.75em;
+  background-image: url("ErrorIcon.png");
+  background-repeat: no-repeat;
+  background-size: var(--errIconSize) var(--errIconSize);
+  width: var(--errIconSize);
+  height: var(--errIconSize);
+  top: calc(50% - (var(--errIconSize) / 2));
+  left: 0;
+  right: 0;
+  margin: auto;
+  position: absolute;
+  opacity: 0.65;
+}
+#ErrorIndicator > div:hover {
+  opacity: 1;
+}
+
 

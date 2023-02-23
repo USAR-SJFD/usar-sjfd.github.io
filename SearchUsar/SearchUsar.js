@@ -1,6 +1,6 @@
 
 // Global consts
-const SERVER_BASE_URL = "https://script.google.com/macros/s/AKfycbzPdaLIiEJuVQoPZ_CYbL29DwvnJJxqtRv4MlNoYIAEdfQxndXl_JFpFeGR9SeRoe6O/exec";
+const SERVER_BASE_URL = "https://script.google.com/macros/s/AKfycbytMMnE21-8BJzwQs55qjAD0WhwAXvmWKp62zkk1xZDY4bjOfedFSYG3UWQa9xHlo96/exec";
 const FETCH_PARAMS = {cache: 'no-store'};
 
 const SERVERVERSION_STORAGE_KEY = "ServerVersion";
@@ -53,14 +53,14 @@ function init()
 	updateRigToggles();
 	fetchUpdateIfNeeded();
 	
-	const strPicsMapJSON = localStorage.getItem(LOCATIONPICSMAP_STORAGE_KEY);
-	gMapLocationPics = (strPicsMapJSON && safeJsonParse(strPicsMapJSON)) || {};
+	const strLocationPicsJSON = localStorage.getItem(LOCATIONPICSMAP_STORAGE_KEY);
+	gMapLocationPics = (strLocationPicsJSON && safeJsonParse(strLocationPicsJSON)) || {};
 
 	// Briefly delay getLocationPics request to minimize server flooding (and since it's a lower priority update)
 	setTimeout(() => {
 		console.log("Server request: 'getLocationPics' (location pictures map)...");
 		serverRequest("getLocationPics");
-	}, 750);
+	}, 500);
 	
 	const strSearchText = localStorage.getItem(SEARCHTEXT_STORAGE_KEY);
 	if (strSearchText)
@@ -73,9 +73,7 @@ function init()
 	// Header is floating fixed, so pad the rest of the content (search results) down to just below header
 	var nPageHeaderHeight = document.getElementById("PageHeader").offsetHeight;
 	document.getElementById("HeadingSpacer").style.height = nPageHeaderHeight + "px";
-	document.getElementById("ModalOverlay").style.top = nPageHeaderHeight + "px";
-	var nOverlayHeight = document.getElementById("ModalOverlay").offsetHeight - nPageHeaderHeight;
-	document.getElementById("AwaitResultsModal").style.height = nOverlayHeight + "px";
+	document.getElementById("LoadingModal").style.top = nPageHeaderHeight + "px";
 	
 	// To handle click-and-drag/touch-and-drag (used for rigSelect buttons)
 	window.addEventListener("mousemove", rigSelect_onMouseOver, {capture: true});
@@ -104,7 +102,7 @@ function fetchUpdateIfNeeded()
 	const nLastRequestTime = strLastRequestTime? parseInt(strLastRequestTime) : 0;
 	const nMillisSinceLastRequest = now - nLastRequestTime;
 	
-	// If it's been less than 1 second since prior request, wait till get to 1 second to request again
+	// If it's been less than 1 second since prior update request, wait till get to 1 second to request again
 	if (nMillisSinceLastRequest < 1000)
 	{
 		console.log("Throttling server request (max 1 per second)");
@@ -126,8 +124,9 @@ function fetchUpdateIfNeeded()
 		// We have local cache; silently check for update, only showing update modal if isUpdateNeeded responds true
 		console.log("Server request: 'getIfNeeded' (inventory content)...");
 		serverRequest("isUpdateNeeded", strCacheModTime);
-		// Briefly delay this second request to (1) minimize server flooding, and (2) give server a chance to cache and reuse date-checking info
-		setTimeout(() => serverRequest("getIfNeeded", strCacheModTime), 500);
+		// Briefly delay this second request to (1) minimize server flooding, and (2) give server a chance to
+		// cache and reuse date-checking info
+		setTimeout(() => serverRequest("getIfNeeded", strCacheModTime), 250);
 	}
 	else
 	{
@@ -154,11 +153,15 @@ function serverRequest(strRequestAction, strCacheModTime)
 
 async function handleServerResponse(strRequestAction, response, err)
 {
+	const bIsInventoryResponse = strRequestAction === "get" || strRequestAction === "getIfNeeded";
+	const parser = bIsInventoryResponse? parseCombinedInventoryText : safeJsonParse;
+	
 	//gnResponsesPending = Math.max(0, gnResponsesPending - 1);
-	if (gbPendingUpdateFetch && (strRequestAction === "get" || strRequestAction === "getIfNeeded"))
+	if (bIsInventoryResponse && gbPendingUpdateFetch)
 	{
 		gbPendingUpdateFetch = false;
 		gbPendingUpdateUI = false;
+		updateUIMode();
 	}
 	
 	if (err)
@@ -168,15 +171,24 @@ async function handleServerResponse(strRequestAction, response, err)
 	else
 	{
 		const strResponseText = await response.text();
-		switch (strRequestAction)
+		const objResponseValue = parser(strResponseText);
+		
+		if (objResponseValue === undefined)
+			showServerError(`Unable to parse server's '${strRequestAction}' response ("${strResponseText}")`);
+		
+		else if (objResponseValue.error)
+			showServerError(objResponseValue.error);
+		
+		else switch (strRequestAction)
 		{
 			case "isUpdateNeeded":
-				if (strResponseText === "false")
+				if (objResponseValue === false)
 					console.log("--> Server response: no update needed (inventory content)");
 				else if (gbPendingUpdateFetch)
 				{
 					console.log("--> Server response: update needed (inventory content); awaiting 'getIfNeeded' response");
 					gbPendingUpdateUI = true;
+					updateUIMode();
 				}
 				else
 				{
@@ -189,56 +201,35 @@ async function handleServerResponse(strRequestAction, response, err)
 			
 			case "getIfNeeded":
 			case "get":
-				const objInventoryInfo = parseCombinedInventoryText(strResponseText);
-				if (objInventoryInfo === undefined)
-					showServerError(`Unable to parse server's '${strRequestAction}' response ("${strResponseText}")`);
-				else if (objInventoryInfo.error)
-					showServerError(objInventoryInfo.error);
-				else if (objInventoryInfo?.rigInventoriesMap)
+				if (objResponseValue?.rigInventoriesMap)
 				{
-					console.log(`--> Server response: update received (inventory content); modTime ${objInventoryInfo.cacheModTime}`);
+					gObjInventoryInfo = objResponseValue;
+					console.log(`--> Server response: update received (inventory content); modTime ${gObjInventoryInfo.cacheModTime}`);
 					localStorage.setItem(INVENTORYCACHE_STORAGE_KEY, strResponseText);
-					gObjInventoryInfo = objInventoryInfo;
 					updateRigToggles();
+					updateUIMode();
 					updateSearchResults();
 				}
-				gbPendingUpdateUI = false;
 				break;
 			
 			case "getLocationPics":
-				updateLocationPicsMapIfNeeded(strResponseText);
+				updateLocationPicsMapIfNeeded(strResponseText, objResponseValue);
 				break;
 		}
 	}
-	
-	updateUIMode();
 }
 
 
-function showServerError(strErrorMsg)
+function updateLocationPicsMapIfNeeded(strLocationPicsJSON, mapLocationPics)
 {
-	//#################### TODO
-	console.log(`SERVER ERR:  ${strErrorMsg}`);
-}
-
-
-function updateLocationPicsMapIfNeeded(strPicsMapJSON)
-{
-	if (localStorage.getItem(LOCATIONPICSMAP_STORAGE_KEY) === strPicsMapJSON)
+	if (localStorage.getItem(LOCATIONPICSMAP_STORAGE_KEY) === strLocationPicsJSON)
 	{
 		console.log("--> Server response: no update needed (location pictures map)");
 		return;
 	}
 	
-	const mapLocationPics = safeJsonParse(strPicsMapJSON);
-	if (mapLocationPics === undefined)
-	{
-		showServerError(`Unable to parse server's 'getLocationPics' response ("${strPicsMapJSON}")`);
-		return;
-	}
-	
 	console.log("--> Server response: update received (location pictures map)");
-	localStorage.setItem(LOCATIONPICSMAP_STORAGE_KEY, strPicsMapJSON);
+	localStorage.setItem(LOCATIONPICSMAP_STORAGE_KEY, strLocationPicsJSON);
 	gMapLocationPics = mapLocationPics;
 	updateSearchResults();
 	
@@ -796,7 +787,7 @@ function styleWhere(strWhere)
 					strWherePart += '</span>';
 					strWhere = strWhere.substr(0, nWherePartEnd) + '<span class="MatchText">' + strWhere.substr(nWherePartEnd);
 				}
-				const strClass = (strImageUrl && bInMainWhere)? "ImageButton MainWhere" : strImageUrl? "ImageButton" : "MainWhere";
+				const strClass = (strImageUrl && bInMainWhere)? "PictureButton MainWhere" : strImageUrl? "PictureButton" : "MainWhere";
 				var strAttribs = ` class="${strClass}"`;
 				if (strImageUrl)
 					strAttribs += ` data-url="${strImageUrl}"`;
@@ -998,7 +989,7 @@ function clearCache()
 	searchText_saveValueAndRefresh("");
 	
 	// Finally, reload the page to reset everything and update the set of rig toggles if needed
-	window.location.reload();
+	window.location.reload(true);
 }
 
 
@@ -1096,7 +1087,7 @@ function openLinksMenu(eltItemDescr)
 	}
 	
 	gEltLinksMenuShownFor = eltItemDescr;
-	eltLinksMenu.style.display = "inline-block";
+	fadeElt(eltLinksMenu, 0.15, true);
 }
 
 
@@ -1287,6 +1278,7 @@ function onSelectedRigsChanged()
 function showUpdateUI(nMillisecs)
 {
 	gbPendingUpdateUI = true;
+	updateUIMode();
 	setTimeout(() => {
 		if (!gbPendingUpdateFetch)
 		{
@@ -1296,22 +1288,93 @@ function showUpdateUI(nMillisecs)
 	}, nMillisecs);
 }
 
+
 function updateUIMode()
 {
 	// Show or hide status message, depending on whether any rigs are selected or not
 	const bNoRigsSelected = !Object.values(gMapRigCheckboxes).some(eltInput => eltInput.checked);
-	const eltStatusMessage = document.getElementById("StatusMessage");
-	eltStatusMessage.style.display = bNoRigsSelected? "block" : "none";
+	document.getElementById("StatusMessage").style.display = bNoRigsSelected? "block" : "none";
 	
-	// Show or hide "waiting" modal, depending on whether any content requests are pending
-	showHideModal("AwaitResultsModal", gbPendingUpdateUI);
+	// Show or hide "loading" modal, depending on whether any content requests are pending
+	showHideModal("LoadingModal", gbPendingUpdateUI);
+}
+
+
+function showServerError(strErrorMsg)
+{
+	// Special-case to make it more intelligible
+	if (strErrorMsg.endsWith(" fetch"))
+		strErrorMsg += " from server";
+	
+	console.warn(`SERVER ERROR:  ${strErrorMsg}`);
+	
+	// Set message box content
+	document.getElementById("ErrorMessage").innerText = strErrorMsg;
+	
+	// If don't have local cache and not in the process of fetching it, then UI is in
+	// unusable state, so skip the error indicator and go directly to the message box
+	if (!gObjInventoryInfo && !gbPendingUpdateFetch && !gbPendingDelayedUpdateFetch)
+	{
+		showHideErrorMessageBox(true);
+		return;
+	}
+	
+	// Show error indicator
+	const eltErrIndicator = document.getElementById("ErrorIndicator");
+	fadeElt(eltErrIndicator, 0.2, true);
+	
+	// Automatically dismiss error indicator after 10 seconds (if not already dismissed by click)
+	setTimeout(() => fadeElt(eltErrIndicator, 1, false), 10000);
+}
+
+
+function showHideErrorMessageBox(bShow)
+{
+	// Dismiss error indicator when show message box
+	if (bShow)
+		fadeElt(document.getElementById("ErrorIndicator"), 0.15, false);
+	
+	showHideModal("ErrorMessageModal", bShow);
 }
 
 
 function showHideModal(strModalID, bShow)
 {
-	document.getElementById("ModalOverlay").style.display = bShow? "block" : "none";
-	document.getElementById(strModalID).style.display = bShow? "block" : "none";
+	const nDurationSeconds = bShow? 0.15 : 0.1;
+	fadeElt(document.getElementById(strModalID), nDurationSeconds, bShow);
 }
 
+
+function fadeElt(elt, nDurationSeconds, bFadeIn)
+{
+	const nToOpacity = bFadeIn? 1 : 0;
+	const eltStyle = elt.style;
+	
+	eltStyle.transition = `opacity ${nDurationSeconds}s`;
+	if (!isNumber(eltStyle.opacity))
+		eltStyle.opacity = bFadeIn? 0 : 1;
+	
+	// Wait a moment before setting target opacity, otherwise the transition animation won't trigger
+	setTimeout(() => { eltStyle.opacity = nToOpacity; }, 1);
+	
+	// If fading in, show elt at start of fade animation; if fading-out, hide elt at end of fade animation
+	if (bFadeIn)
+		eltStyle.display = "block";
+	else
+		setTimeout(() => { eltStyle.display = "none"; }, Math.round(nDurationSeconds * 1000));
+}
+
+
+function isNumber(val)
+{
+	switch (typeof val)
+	{
+		case "number":
+			return true;
+		case "string":
+			return val !== "" && !isNaN(val);  // isNaN coerces arg to num if possible, treats as NaN if coercion fails
+		default:
+			return false;
+	}
+}
 
