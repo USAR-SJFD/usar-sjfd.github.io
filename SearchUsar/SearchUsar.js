@@ -1,6 +1,6 @@
 
 // Global consts
-const SERVER_BASE_URL = "https://script.google.com/macros/s/AKfycbxxPEzgBvruYBq-9fjtBihTUB5TX04XF1r66OEXDz5QftsEqDSHRxk1ppNDWkThZrs3/exec";
+const SERVER_BASE_URL = "https://script.google.com/macros/s/AKfycbx7T5PiVR-23DxXmFFRg3WmeIN0EKmflCEWcbLJNM6iy9bPC9jNaqj4hDeNTKdjgrX7/exec";
 const FETCH_PARAMS = {cache: 'no-store'};
 
 const SERVERVERSION_STORAGE_KEY = "ServerVersion";
