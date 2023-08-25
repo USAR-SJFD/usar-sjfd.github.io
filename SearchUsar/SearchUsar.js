@@ -1,6 +1,6 @@
 
 // Global consts
-const SERVER_BASE_URL = "https://script.google.com/macros/s/AKfycbytMMnE21-8BJzwQs55qjAD0WhwAXvmWKp62zkk1xZDY4bjOfedFSYG3UWQa9xHlo96/exec";
+const SERVER_BASE_URL = "https://script.google.com/macros/s/AKfycbxxPEzgBvruYBq-9fjtBihTUB5TX04XF1r66OEXDz5QftsEqDSHRxk1ppNDWkThZrs3/exec";
 const FETCH_PARAMS = {cache: 'no-store'};
 
 const SERVERVERSION_STORAGE_KEY = "ServerVersion";
@@ -71,7 +71,7 @@ function init()
 	}
 	
 	// Header is floating fixed, so pad the rest of the content (search results) down to just below header
-	var nPageHeaderHeight = document.getElementById("PageHeader").offsetHeight;
+	const nPageHeaderHeight = document.getElementById("PageHeader").offsetHeight;
 	document.getElementById("HeadingSpacer").style.height = nPageHeaderHeight + "px";
 	document.getElementById("LoadingModal").style.top = nPageHeaderHeight + "px";
 	
@@ -996,7 +996,7 @@ function clearCache()
 function searchInput_onSubmit()
 {
 	// Hidden "clear cache" command
-	var eltSearchInput = document.getElementById("SearchInput");
+	const eltSearchInput = document.getElementById("SearchInput");
 	if (eltSearchInput.value.trim().toLowerCase() === "clear cache")
 		clearCache();
 	
@@ -1011,9 +1011,9 @@ function searchInput_onSubmit()
 
 
 
-function searchInput_onKeyUp(eltSearchInput, evt)
+function searchInput_onChange()
 {
-	searchText_saveValueAndRefresh(eltSearchInput.value);
+	searchText_saveValueAndRefresh(document.getElementById("SearchInput").value);
 }
 
 

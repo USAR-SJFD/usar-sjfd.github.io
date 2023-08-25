@@ -31,7 +31,7 @@
           <label style="visibility: hidden"><input type="checkbox" disabled><span>&nbsp;</span></label>
         </div>
         <input id="SearchInput" type="search" name="Search" value=""
-          onKeyUp="searchInput_onKeyUp(this, event)"
+          oninput="searchInput_onChange(this, event)"
           placeholder="Search USAR inventory"
           />
       </form>
