@@ -45,7 +45,7 @@ function init()
 	{
 		localStorage.setItem(SERVERVERSION_STORAGE_KEY, SERVER_BASE_URL);
 		console.log("Clearing local cache because server version has been updated");
-		return clearCache();  // this causes reload		
+		return clearCache();  // has side-effect of reloading the page
 	}
 	
 	const strInventoryInfo = localStorage.getItem(INVENTORYCACHE_STORAGE_KEY);
@@ -768,7 +768,7 @@ function styleWhere(strWhere)
 				+ kStrInternalSeparator + strWhereTail;
 	
 	
-	//##### TODO: INCORPORATE IMAGE LINKS BASED ON gMapImages KEYED BY SUBSTRS OF strWhere
+	//##### TODO: INCORPORATE IMAGE LINKS BASED ON gMapLocationPics KEYED BY SUBSTRS OF strWhere
 	//			- loop through kStrInternalSeparator's in strWhere
 	//			  (maybe also integrate "MainWhere" behavior into this loop -- i.e. when nPartNum == 2)
 			/*
@@ -776,7 +776,7 @@ function styleWhere(strWhere)
 			nWherePartEnd = strWhere.indexOf(kStrInternalSeparator, nWherePartStart);
 			if (nWherePartEnd === -1) ...
 			var strWherePart = strWhere.substring(nWherePartStart, nWherePartEnd);
-			const strImageUrl = gMapImages[strWhere.substr(0, nWherePartEnd)];
+			const strImageUrl = gMapLocationPics[strWhere.substr(0, nWherePartEnd)];
 			const bInMainWhere = (nPartNum === 2);
 			if (strImageUrl || bInMainWhere)
 			{
@@ -998,7 +998,7 @@ function searchInput_onSubmit()
 	// Hidden "clear cache" command
 	const eltSearchInput = document.getElementById("SearchInput");
 	if (eltSearchInput.value.trim().toLowerCase() === "clear cache")
-		clearCache();
+		clearCache();  // has side-effect of reloading the page
 	
 	// Special case for iOS Safari: extra unfocus actions in order to make iOS keyboard dismiss
 	document.activeElement.blur();
