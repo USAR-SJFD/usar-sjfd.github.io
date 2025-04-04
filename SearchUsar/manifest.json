@@ -4,7 +4,7 @@
   "short_name": "USAR Search",
   "icons": [
     {
-      "src": "/favicon.png",
+      "src": "favicon.png",
       "type": "image/png",
       "sizes": "512x512"
     }
@@ -13,5 +13,5 @@
   "background_color": "white",
   "display": "standalone",
   "scope": "/",
-  "start_url": "/index.htm"
+  "start_url": "index.htm"
 }
