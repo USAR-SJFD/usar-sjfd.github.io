@@ -1,38 +1,54 @@
 
 // Global consts
-const SERVER_BASE_URL = "https://script.google.com/macros/s/AKfycbx7T5PiVR-23DxXmFFRg3WmeIN0EKmflCEWcbLJNM6iy9bPC9jNaqj4hDeNTKdjgrX7/exec";
+const SERVER_BASE_URL = "https://script.google.com/macros/s/AKfycbww9hGlFAwwo6EAFaqJiKM0mACqlDzLtIgCXxWwyszRx8hnYHlYrenTf5giVBfOna1t/exec";
+const GDRIVE_FILE_URL_FMT = "https://drive.google.com/file/d/{id}/preview";             // preferred (raw file)
+//const GDRIVE_FILE_URL_FMT = "https://drive.google.com/file/d/{id}/view";             	// standard (webViewLink)
+//const GDRIVE_FILE_URL_FMT = "https://drive.usercontent.google.com/download?id={id}";  // slow (doesn't cache)
+const GDRIVE_FILE_ID_FROM_URL_REGEX = /^https:\/\/.*?drive\b.+google\.co.*(?:\bid=|\/file\/d\/)([^&/]+)/i;
 const FETCH_PARAMS = {cache: 'no-store'};
 
 const SERVERVERSION_STORAGE_KEY = "ServerVersion";
 const SELECTEDRIGS_STORAGE_KEY = "SelectedRigs";
 const SEARCHTEXT_STORAGE_KEY = "SearchText";
 const INVENTORYCACHE_STORAGE_KEY = "InventoryCache";
-const LOCATIONPICSMAP_STORAGE_KEY = "LocationPicsMap";
 const LASTREQUESTTIME_STORAGE_KEY = "LastRequestTime";
 
-const knMinimumSearchTextLen = 2;
-const kStrInternalSeparator = "\t";
-const kStrRecordSeparator = "␞";           // 'record separator' (unicode 9246)
-const kStrWhereSeparator = " ≫ ";          // 'much greater-than' (unicode 8811)
-//const kStrWhereSeparator = " ▻ ";
-//const kStrWhereSeparator = " ➤ ";
-//const kStrWhereSeparator = " ⨠ ";
-//const kStrWhereSeparator = "&thinsp;➝ ";
-//const kStrWhereSeparator = "&thinsp;➛ ";
+const MINIMUM_SEARCHTEXT_LEN = 2;
+
+const INTERNAL_SEPARATOR = "\t";
+const RECORD_SEPARATOR = "␞";            // 'record separator' (unicode 9246)
+const MATCH_START_MARK = "";          // 'start of text' (unicode 2)
+const MATCH_END_MARK = "";            // 'end of text' (unicode 3)
+
+const SHELF_SECTION_REGEX = /\b(?:Shelf(?:[\W_0-9]?Section)?|Section)(?=[\W_0-9])/ig;  // must match server exactly
+const STRIP_MATCH_MARKERS_AND_SPACE_REGEX = new RegExp(
+	`(?:[${MATCH_START_MARK}${MATCH_END_MARK}]|[^\\S${INTERNAL_SEPARATOR}]+)`, "gu");
+
+const WHERE_SEPARATED_MATCHES_REGEX = new RegExp(
+	`${MATCH_START_MARK}([^${MATCH_END_MARK}${INTERNAL_SEPARATOR}]*)${INTERNAL_SEPARATOR}`, "gu");
+const WHERE_SEPARATED_MATCHES_REPLACEMENT =
+	`${MATCH_START_MARK}$1${MATCH_END_MARK}${INTERNAL_SEPARATOR}${MATCH_START_MARK}`;
+
+
+const WHERE_SEPARATOR = " ≫ ";           // 'much greater-than' (unicode 8811)
+//const WHERE_SEPARATOR = " ▻ ";
+//const WHERE_SEPARATOR = " ➤ ";
+//const WHERE_SEPARATOR = " ⨠ ";
+//const WHERE_SEPARATOR = "&thinsp;➝ ";
+//const WHERE_SEPARATOR = "&thinsp;➛ ";
 
 const REM_PX = parseFloat(getComputedStyle(document.documentElement).fontSize);
 const SUPPRESS_EVENT = evt => evt.preventDefault();
 
 
 // Global vars
-var gObjInventoryInfo = null;		// will contain {cacheModTime, rigButtonsMap, rigInventoriesMap}
+var gObjInventoryInfo = null;		// will contain {cacheModTime, rigButtonsMap, rigInventoriesMap, locationPicsMap}
 var gbPendingUpdateFetch = false;
 var gbPendingDelayedUpdateFetch = false;
 var gbPendingUpdateUI = false;
 var gArrRigButtonNames = [];
 var gArrCheckedButtonNames = [];
 
-var gMapLocationPics = {};
 var gMapRigCheckboxes = {};    // will contain {<buttonName>: <eltCheckbox>, ...}
 var gStrSearchText = "";
 var gObjRigSelectMouseDown = {};
@@ -52,15 +68,6 @@ function init()
 	gObjInventoryInfo = strInventoryInfo && parseCombinedInventoryText(strInventoryInfo);
 	updateRigToggles();
 	fetchUpdateIfNeeded();
-	
-	const strLocationPicsJSON = localStorage.getItem(LOCATIONPICSMAP_STORAGE_KEY);
-	gMapLocationPics = (strLocationPicsJSON && safeJsonParse(strLocationPicsJSON)) || {};
-
-	// Briefly delay getLocationPics request to minimize server flooding (and since it's a lower priority update)
-	setTimeout(() => {
-		console.log("Server request: 'getLocationPics' (location pictures map)...");
-		serverRequest("getLocationPics");
-	}, 500);
 	
 	const strSearchText = localStorage.getItem(SEARCHTEXT_STORAGE_KEY);
 	if (strSearchText)
@@ -211,30 +218,26 @@ async function handleServerResponse(strRequestAction, response, err)
 					updateSearchResults();
 				}
 				break;
-			
-			case "getLocationPics":
-				updateLocationPicsMapIfNeeded(strResponseText, objResponseValue);
-				break;
 		}
 	}
 }
 
 
-function updateLocationPicsMapIfNeeded(strLocationPicsJSON, mapLocationPics)
+function maybeGoogleDriveFileUrl(strFileUrlOrID)
 {
-	if (localStorage.getItem(LOCATIONPICSMAP_STORAGE_KEY) === strLocationPicsJSON)
+	let strFileID;
+	if (!/^https?:\/\//i.test(strFileUrlOrID))
+		strFileID = strFileUrlOrID;
+	else
 	{
-		console.log("--> Server response: no update needed (location pictures map)");
-		return;
+		let match = GDRIVE_FILE_ID_FROM_URL_REGEX.exec(strFileUrlOrID);
+		if (match)
+			strFileID = match[1]
+		else
+			return strFileUrlOrID;  // not a Google Drive url (or unable to find ID), so just return given url
 	}
 	
-	console.log("--> Server response: update received (location pictures map)");
-	localStorage.setItem(LOCATIONPICSMAP_STORAGE_KEY, strLocationPicsJSON);
-	gMapLocationPics = mapLocationPics;
-	updateSearchResults();
-	
-	// Briefly put the UI in update mode so user knows an update happened
-	showUpdateUI(1000);
+	return GDRIVE_FILE_URL_FMT.replace("{id}", strFileID);
 }
 
 
@@ -247,7 +250,7 @@ function arrayEquals(arr1, arr2)
 function updateRigToggles()
 {
 	// Get the rig button names in alphabetical order
-	const mapRigButtons = gObjInventoryInfo?.rigButtonsMap;
+	const mapRigButtons = gObjInventoryInfo?.rigButtonsMap || {};
 	const arrRigButtonNames = mapRigButtons? Object.keys(mapRigButtons) : [];
 	arrRigButtonNames.sort();
 	
@@ -309,7 +312,7 @@ function updateSearchResults()
 	const arrCheckedButtonNames = Object.values(gMapRigCheckboxes).filter(elt => elt.checked).map(elt => elt.name);
 	var arrResults = [];
 
-	if (arrCheckedButtonNames.length > 0 && gStrSearchText.length >= knMinimumSearchTextLen)
+	if (arrCheckedButtonNames.length > 0 && gStrSearchText.length >= MINIMUM_SEARCHTEXT_LEN)
 	{
 		const strDistilledLowerSearchText = distillSearchText(gStrSearchText);
 		if (strDistilledLowerSearchText)
@@ -436,8 +439,8 @@ function rebuildSearchResultsTable(arrResults)
 		eltItemDescr.className = "ItemDescr";
 		if (!bSameAsPrevItem)
 		{
-			eltItemDescr.innerHTML = strItemDescr;
-			//eltItemDescr.innerHTML = strItemDescr? `(${nScore})  ${strItemDescr}` : "";  // ***FOR DEBUGGING***
+			eltItemDescr.innerHTML = styleItemDescr(strItemDescr);
+			//eltItemDescr.innerHTML = strItemDescr? `(${nScore})  ${styleItemDescr(strItemDescr)}` : "";  // ***FOR DEBUGGING***
 			
 			if (strItemInfo)
 			{
@@ -507,7 +510,7 @@ function distillSearchText(strSearchText)
 	strSearchText = strSearchText.replace(/"([^"]*)(?:"|$)/g, (m, group1) => group1.trim().replaceAll(" ", "_"));
 	strSearchText = strSearchText.trim();
 	console.log('"' + strSearchText + '"');
-	if (strSearchText.length < knMinimumSearchTextLen || !/[a-z0-9]{2}/.test(strSearchText))
+	if (strSearchText.length < MINIMUM_SEARCHTEXT_LEN || !/[a-z0-9]{2}/.test(strSearchText))
 		return null;
 	else
 		return strSearchText;
@@ -560,7 +563,7 @@ function buildSearchRegex(strDistilledLowerSearchText, strRegexFlags, bForWhereS
 	strSearchPattern = strSearchPattern.replaceAll(" ", ")(.+?)(");
 	
 	// Finally, skip over initial 'record' (rig & quantity info), and add initial and final group parentheses
-	strSearchPattern = `^([^${kStrRecordSeparator}]*${kStrRecordSeparator}.*?)(${strSearchPattern})`;
+	strSearchPattern = `^([^${RECORD_SEPARATOR}]*${RECORD_SEPARATOR}.*?)(${strSearchPattern})`;
 	
 	return new RegExp(strSearchPattern, strRegexFlags);
 }
@@ -604,12 +607,12 @@ function searchRigContents(strButtonName, searchRegex, searchWhereRegex)
 			// And also adjust nMatchEnd relative to line
 			nMatchEnd -= nLineStart;
 			
-			const nItemInfoEnd = strLine.indexOf(kStrRecordSeparator);
-			const nItemStart = nItemInfoEnd + kStrRecordSeparator.length;
-			const nItemEnd = strLine.indexOf(kStrRecordSeparator, nItemStart);
-			const nWhereStart = nItemEnd + kStrRecordSeparator.length;
+			const nItemInfoEnd = strLine.indexOf(RECORD_SEPARATOR);
+			const nItemStart = nItemInfoEnd + RECORD_SEPARATOR.length;
+			const nItemEnd = strLine.indexOf(RECORD_SEPARATOR, nItemStart);
+			const nWhereStart = nItemEnd + RECORD_SEPARATOR.length;
 			const bMatchInItem = nMatchStart < nWhereStart;
-			const bMatchInWhere = nMatchEnd >= nWhereStart;
+			const bMatchInWhere = nMatchEnd > nWhereStart;
 			bMatchesInItem ||= bMatchInItem;
 			bMatchesInWhere ||= bMatchInWhere;
 			
@@ -636,6 +639,8 @@ function searchRigContents(strButtonName, searchRegex, searchWhereRegex)
 			
 			if (bMatchInWhere && searchWhereRegex)
 			{
+				// If the match is in where and we have a searchWhereRegex that finds a match,
+				// use that match instead of regular searchRegex's match
 				const whereRegexMatch = searchWhereRegex.exec(strLine);
 				if (whereRegexMatch)
 				{
@@ -693,20 +698,14 @@ function searchRigContents(strButtonName, searchRegex, searchWhereRegex)
 				
 				if (bPartMatchInItem && bPartMatchInWhere)
 					// This match part spans across the item/where record-separator, so
-					// need to close and re-open the MatchText span around that separator
+					// need to close and re-open the match markers around that separator
 					strLineHilited += strLine.substring(nPrevPartMatchEnd, nPartMatchStart)
-									+ '<span class="MatchText">'
-									+ strLine.substring(nPartMatchStart, nItemEnd)
-									+ '</span>'
-									+ kStrRecordSeparator
-									+ '<span class="MatchText">'
-									+ strLine.substring(nWhereStart, nPartMatchEnd)
-									+ '</span>';
+									+ MATCH_START_MARK + strLine.substring(nPartMatchStart, nItemEnd) + MATCH_END_MARK
+									+ RECORD_SEPARATOR
+									+ MATCH_START_MARK + strLine.substring(nWhereStart, nPartMatchEnd) + MATCH_END_MARK;
 				else
 					strLineHilited += strLine.substring(nPrevPartMatchEnd, nPartMatchStart)
-									+ '<span class="MatchText">'
-									+ strLine.substring(nPartMatchStart, nPartMatchEnd)
-									+ '</span>';
+									+ MATCH_START_MARK + strLine.substring(nPartMatchStart, nPartMatchEnd) + MATCH_END_MARK;
 				
 				nPrevPartMatchEnd = nPartMatchEnd;
 				if ((i + 1) < nNumGroups)
@@ -724,9 +723,9 @@ function searchRigContents(strButtonName, searchRegex, searchWhereRegex)
 			nScore = nScore / nNumPartScores;
 			
 			const nQuantity = strQuantity? (parseInt(strQuantity) || 1) : 1;
-			const nHilitedItemEnd = strLineHilited.indexOf(kStrRecordSeparator);
+			const nHilitedItemEnd = strLineHilited.indexOf(RECORD_SEPARATOR);
 			const strItemDescr = strLineHilited.substr(0, nHilitedItemEnd);
-			const strWhere = strLineHilited.substr(nHilitedItemEnd + kStrRecordSeparator.length);
+			const strWhere = strLineHilited.substr(nHilitedItemEnd + RECORD_SEPARATOR.length);
 			
 			arrResults.push({nScore, bMatchInItem, bMatchInWhere, nQuantity, strItemDescr, strWhere, strItemInfo});
 		}
@@ -738,69 +737,68 @@ function searchRigContents(strButtonName, searchRegex, searchWhereRegex)
 }
 
 
+function styleItemDescr(strDescr)
+{
+	// Replace match start/end markers with span html
+	return strDescr.replaceAll(MATCH_START_MARK, '<span class="MatchText">')
+	               .replaceAll(MATCH_END_MARK, '</span>');
+}
+
+
 function styleWhere(strWhere)
 {
-	// Find "main where", the 2nd tab-delimited item in strWhere (e.g. the compartment number)
-	const nFirstSepIndex = strWhere.indexOf(kStrInternalSeparator);
-	if (nFirstSepIndex < 1)
-		return strWhere;
+	// For indexing location path into locationPicsMap, first replace all "Shelf/Section"
+	// with "S", then strip all match markers & all space except INTERNAL_SEPARATOR
+	// NOTE: this must match server-side implementation exactly
+	const strUnstyledWhere = strWhere.replaceAll(SHELF_SECTION_REGEX, "S")
+	                                 .replaceAll(STRIP_MATCH_MARKERS_AND_SPACE_REGEX, "");
 	
-	const nMainWhereStart = nFirstSepIndex + kStrInternalSeparator.length;
-	var nSecondSepIndex = strWhere.indexOf(kStrInternalSeparator, nMainWhereStart);
-	if (nSecondSepIndex == -1)
-		nSecondSepIndex = strWhere.length;
+	// For matches spanning more than one segment, add MATCH_END_MARK & MATCH_START_MARK
+	// around INTERNAL_SEPARATOR so match spans are all fully contained within one segment
+	strWhere = strWhere.replaceAll(WHERE_SEPARATED_MATCHES_REGEX, WHERE_SEPARATED_MATCHES_REPLACEMENT);
 	
-	var strWhereHead = strWhere.substr(0, nFirstSepIndex);
-	var strMainWhere = strWhere.substring(nMainWhereStart, nSecondSepIndex);
-	var strWhereTail = strWhere.substr(nSecondSepIndex + kStrInternalSeparator.length);
+	// Replace match start/end markers with span html
+	strWhere = strWhere.replaceAll(MATCH_START_MARK, '<span class="MatchText">')
+	                   .replaceAll(MATCH_END_MARK, '</span>');
 	
-	if (strMainWhere.lastIndexOf('<span class="MatchText">') > strMainWhere.lastIndexOf('</span>'))
+	// Split styled result into segments
+	const arrStyledSegments = strWhere.split(INTERNAL_SEPARATOR);
+	const nNumSegments = arrStyledSegments.length;
+
+	if (nNumSegments > 1)
 	{
-		// A "MatchText" span starts in the "main where" but finishes outside of it,
-		// so need to close out that span and start a new one at start of next item
-		strMainWhere += '</span>';
-		strWhereTail = '<span class="MatchText">' + strWhereTail;
+		// Treat 2nd segment (usually the compartment number) as "main where"
+		arrStyledSegments[1] = '<span class="MainWhere">' + arrStyledSegments[1] + '</span>'
+		
+		// Loop through the location paths from least to most specific, and index each into locationPicsMap
+		const nFirstSepIndex = strUnstyledWhere.indexOf(INTERNAL_SEPARATOR);
+		const strRigName = strUnstyledWhere.substr(0, nFirstSepIndex);
+		const mapRigLocationPics = 	gObjInventoryInfo?.locationPicsMap?.[strRigName];
+		if (mapRigLocationPics)
+		{
+			const nLocationPathStart = nFirstSepIndex + INTERNAL_SEPARATOR.length;
+			let nPrevSegmentStart = nLocationPathStart;
+			for (let i = 1; i < nNumSegments; i++)	
+			{
+				let nSegmentEnd = strUnstyledWhere.indexOf(INTERNAL_SEPARATOR, nPrevSegmentStart);
+				if (nSegmentEnd === -1)
+					nSegmentEnd = strUnstyledWhere.length;
+				
+				let strLocationPath = strUnstyledWhere.substring(nLocationPathStart, nSegmentEnd);
+				let strFileUrlOrID = mapRigLocationPics[strLocationPath];
+				if (strFileUrlOrID)
+				{
+					// There's a picture mapped to this location path; make a link to it
+					let strPicUrl = maybeGoogleDriveFileUrl(strFileUrlOrID);
+					arrStyledSegments[i] = 
+						`<a class="LocationPictLink" href="${strPicUrl}" target="_blank">${arrStyledSegments[i]}</a>`;
+				}
+				nPrevSegmentStart = nSegmentEnd + INTERNAL_SEPARATOR.length;
+			}
+		}
 	}
 	
-	// Enclose the "main where" in a span of class "MainWhere"
-	strWhere = strWhereHead + kStrInternalSeparator
-				+ '<span class="MainWhere">' + strMainWhere + '</span>'
-				+ kStrInternalSeparator + strWhereTail;
-	
-	
-	//##### TODO: INCORPORATE IMAGE LINKS BASED ON gMapLocationPics KEYED BY SUBSTRS OF strWhere
-	//			- loop through kStrInternalSeparator's in strWhere
-	//			  (maybe also integrate "MainWhere" behavior into this loop -- i.e. when nPartNum == 2)
-			/*
-			nWherePartStart = nWherePartEnd + 1;
-			nWherePartEnd = strWhere.indexOf(kStrInternalSeparator, nWherePartStart);
-			if (nWherePartEnd === -1) ...
-			var strWherePart = strWhere.substring(nWherePartStart, nWherePartEnd);
-			const strImageUrl = gMapLocationPics[strWhere.substr(0, nWherePartEnd)];
-			const bInMainWhere = (nPartNum === 2);
-			if (strImageUrl || bInMainWhere)
-			{
-				if (strMainWhere.lastIndexOf('<span class="MatchText">') > strMainWhere.lastIndexOf('</span>'))
-				{
-					// A "MatchText" span starts in this where part but finishes outside of it,
-					// so need to close out that span and start a new one at start of next part
-					strWherePart += '</span>';
-					strWhere = strWhere.substr(0, nWherePartEnd) + '<span class="MatchText">' + strWhere.substr(nWherePartEnd);
-				}
-				const strClass = (strImageUrl && bInMainWhere)? "PictureButton MainWhere" : strImageUrl? "PictureButton" : "MainWhere";
-				var strAttribs = ` class="${strClass}"`;
-				if (strImageUrl)
-					strAttribs += ` data-url="${strImageUrl}"`;
-				//...wrap this where-part in `<span ${strAttribs}>`...'</span>'
-			}
-			*/
-	
-	//#####
-	//strWhere += '<img style="height: 0.85em; padding-left: 0.35em; margin-bottom: -0.025em;" src="PictureIcon.png" />'
-	
-	
-	// And finally, replace all the internal separators with the UI separator text
-	return strWhere.replaceAll(kStrInternalSeparator, kStrWhereSeparator);
+	return arrStyledSegments.join(WHERE_SEPARATOR);
 }
 
 
@@ -907,7 +905,7 @@ function getWherePartMatchScore(strMatch, strText, nMatchStart, nPrevPartMatchEn
 	const nOffsetFromEndOfWord = nMatchWordEndPos - nMatchEnd;
 	
 	// A match that is a whole tab-delimited section gets a higher score, reduced minimally by section number
-	if (nOffsetInWord === 0 && (strText[nPrevSpacePos] === "\t" || strText[nPrevSpacePos] === kStrRecordSeparator)
+	if (nOffsetInWord === 0 && (strText[nPrevSpacePos] === "\t" || strText[nPrevSpacePos] === RECORD_SEPARATOR)
 		&& nOffsetFromEndOfWord === 0 && (nMatchWordEndPos === strText.length || strText[nMatchWordEndPos] === "\t"))
 		return 1000 - nSectionIndex*5;
 	
@@ -983,7 +981,6 @@ function clearCache()
 {
 	gObjInventoryInfo = null;
 	localStorage.removeItem(INVENTORYCACHE_STORAGE_KEY);
-	localStorage.removeItem(LOCATIONPICSMAP_STORAGE_KEY);
 	
 	// Empty the search text
 	searchText_saveValueAndRefresh("");
@@ -1081,7 +1078,7 @@ function openLinksMenu(eltItemDescr)
 		eltIcon.src = `LinkIcon_${icon}.png`;
 		eltMenuItem.appendChild(eltIcon);
 		eltMenuItem.appendChild(document.createTextNode(title));
-		eltMenuItem.href = url;
+		eltMenuItem.href = maybeGoogleDriveFileUrl(url);
 		eltMenuItem.target = "_blank";
 		eltLinksMenu.appendChild(eltMenuItem);
 	}

@@ -223,23 +223,37 @@ span.MainWhere {
   color: red;
 }
 
-span.PictureButton {
-  cursor: pointer;
+
+a.LocationPictLink, a.LocationPictLink:visited {
+  color: inherit;
+  text-decoration: underline dotted #707070;
+  -webkit-text-decoration: underline dotted #707070;
 }
-span.PictureButton:hover {
+
+/*
+span.LocationPictLink {
+  cursor: pointer;
+  padding-right: 1.3em;
+}
+span.LocationPictLink:hover {
   text-decoration: underline dotted;
 }
-span.PictureButton:after {
-  background-image: url("PictureIcon.png");
-  background-repeat: no-repeat;
-  background-size: 1.05em 0.85em;
+span.LocationPictLink:after {
+  position: absolute;
   display: inline-block;
   content: "";
+  background-image: url("PictureIcon.png");
+  background-repeat: no-repeat;
+  margin-top: 0.11em;
+  background-size: 1.05em 0.85em;
+  width: 1.05em;
+  margin-left: 0.3em;
+  margin-top: 0.25em;
+  background-size: 0.85em 0.65em;
   width: 1.05em;
   height: 0.85em;
-  margin-left: 0.35em;
-  margin-bottom: -0.025em;
 }
+*/
 
 
 #StatusMessage {

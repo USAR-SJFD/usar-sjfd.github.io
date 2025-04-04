@@ -1,20 +1,24 @@
 <!DOCTYPE html>
 <html lang="en" xml:lang="en" xmlns="http://www.w3.org/1999/xhtml">
   <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="manifest" href="manifest.json" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     
-    <meta charset="UTF-8">
-    <meta name="google" content="notranslate">
-    <meta http-equiv="Content-Language" content="en">
-    
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Language" content="en" />
+    <meta name="google" content="notranslate" />
     <title>USAR Search</title>
     
     <link rel="icon" href="favicon.png" type="image/x-icon" />
     <link rel="shortcut icon" href="favicon.png" type="image/x-icon" />
+    <link rel="apple-touch-icon" href="favicon.png" />
     <link rel="apple-touch-icon-precomposed" href="favicon.png" />
     
     <script type="text/javascript" src="SearchUsar.js"></script>
@@ -30,9 +34,14 @@
           <!-- Leave rig toggles area empty during initial load -->
           <label style="visibility: hidden"><input type="checkbox" disabled><span>&nbsp;</span></label>
         </div>
+        <!-- The onmousedown / ontouchstart / contenteditable attribs below "fix" an iOS bug
+             in webapps running in standalone mode that sometimes stops keyboard from showing -->
         <input id="SearchInput" type="search" name="Search" value=""
-          oninput="searchInput_onChange(this, event)"
           placeholder="Search USAR inventory"
+          oninput="searchInput_onChange(this, event)"
+          onmousedown="this.focus()"
+          ontouchstart="this.focus()"
+          contenteditable="true"
           />
       </form>
     </div>

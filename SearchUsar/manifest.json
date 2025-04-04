@@ -1,0 +1,17 @@
+{
+  "id": "USARSearch",
+  "name": "USARSearch",
+  "short_name": "USARSearch",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "theme_color": "#CE2029",
+  "background_color": "white",
+  "display": "standalone",
+  "scope": "/",
+  "start_url": "/index.htm"
+}
