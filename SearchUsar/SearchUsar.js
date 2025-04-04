@@ -750,8 +750,8 @@ function styleWhere(strWhere)
 	// For indexing location path into locationPicsMap, first replace all "Shelf/Section"
 	// with "S", then strip all match markers & all space except INTERNAL_SEPARATOR
 	// NOTE: this must match server-side implementation exactly
-	const strUnstyledWhere = strWhere.replaceAll(SHELF_SECTION_REGEX, "S")
-	                                 .replaceAll(STRIP_MATCH_MARKERS_AND_SPACE_REGEX, "");
+	const strUnstyledWhere = strWhere.replaceAll(STRIP_MATCH_MARKERS_AND_SPACE_REGEX, "")
+	                                 .replaceAll(SHELF_SECTION_REGEX, "S");
 	
 	// For matches spanning more than one segment, add MATCH_END_MARK & MATCH_START_MARK
 	// around INTERNAL_SEPARATOR so match spans are all fully contained within one segment
