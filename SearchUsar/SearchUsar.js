@@ -1,6 +1,6 @@
 
 // Global consts
-const SERVER_BASE_URL = "https://script.google.com/macros/s/AKfycbyEa4uVOwaNPpZZcTcjoOekoKCMahaZDGpAgFaCG_ZPIgADlsjyCncKnDwA7q8sEGqa/exec";
+const SERVER_BASE_URL = "https://script.google.com/macros/s/AKfycbwAHMyP089nwV1PvCUZ5GuZhdrs8MapazAHJ0Bf4xBAwunsBAgMj2BFRUooQqRa92z7/exec";
 const GDRIVE_FILE_URL_FMT = "https://drive.google.com/file/d/{id}/preview";             // preferred (raw file)
 //const GDRIVE_FILE_URL_FMT = "https://drive.google.com/file/d/{id}/view";             	// standard (webViewLink)
 //const GDRIVE_FILE_URL_FMT = "https://drive.usercontent.google.com/download?id={id}";  // slow (doesn't cache)
@@ -148,9 +148,10 @@ function fetchUpdateIfNeeded()
 
 function serverRequest(strRequestAction, strCacheModTime)
 {
+	//console.log(`serverRequest(${strRequestAction}, ${strCacheModTime})`)
 	//gnResponsesPending++;
 	const strUrl = strCacheModTime?
-		`${SERVER_BASE_URL}?action=${strRequestAction}&clientCacheModTime=${strCacheModTime}` :
+		`${SERVER_BASE_URL}?action=${strRequestAction}&clientCacheModTime=${encodeURIComponent(strCacheModTime)}` :
 		`${SERVER_BASE_URL}?action=${strRequestAction}`;
 	fetch(strUrl, FETCH_PARAMS)
 		.then(response => handleServerResponse(strRequestAction, response))
