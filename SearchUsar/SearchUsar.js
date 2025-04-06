@@ -1,6 +1,6 @@
 
 // Global consts
-const SERVER_BASE_URL = "https://script.google.com/macros/s/AKfycbwAHMyP089nwV1PvCUZ5GuZhdrs8MapazAHJ0Bf4xBAwunsBAgMj2BFRUooQqRa92z7/exec";
+const SERVER_BASE_URL = "https://script.google.com/macros/s/AKfycbw-tp0zFPQAYhv2kmXRg61MQfthG4c-az9Y7RXyyncWvCDlD-4EQ9d-YmxUvSALtGzn/exec";
 const GDRIVE_FILE_URL_FMT = "https://drive.google.com/file/d/{id}/preview";             // preferred (raw file)
 //const GDRIVE_FILE_URL_FMT = "https://drive.google.com/file/d/{id}/view";             	// standard (webViewLink)
 //const GDRIVE_FILE_URL_FMT = "https://drive.usercontent.google.com/download?id={id}";  // slow (doesn't cache)
